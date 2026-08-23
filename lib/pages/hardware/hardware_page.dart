@@ -4,9 +4,15 @@ import 'dart:io';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:oktoast/oktoast.dart';
-import 'package:rapidefi/utils/config/services/config_service.dart';
+import 'package:rapidefi/utils/config/support/macos_version.dart';
 import 'package:rapidefi/utils/file_util.dart';
+import 'package:rapidefi/utils/hardware/config/hardware_config_build_context.dart';
+import 'package:rapidefi/utils/hardware/config/hardware_config_options.dart';
+import 'package:rapidefi/utils/hardware/config/hardware_gpu_topology.dart';
+import 'package:rapidefi/utils/hardware/config/hardware_platform_recommendation.dart';
+import 'package:rapidefi/utils/hardware/config/hardware_platform_resolver.dart';
 import 'package:rapidefi/utils/hardware/hardware_info.dart';
+import 'package:rapidefi/utils/hardware/model/allinfo.dart';
 import 'package:rapidefi/utils/hardware/ssdt/ssdt_selection.dart';
 import 'widgets/hardware_toolbar.dart';
 import 'widgets/hardware_status_bar.dart';
@@ -77,19 +83,7 @@ class _HardwarePageState extends State<HardwarePage> {
       _lastRawInfo = null;
     }
     _selectedAlcLayout = null;
-    final current = _personalizedResult;
-    if (current == null) return;
-    _personalizedResult = PersonalizedEfiResult(
-      macOSVersion: current.macOSVersion,
-      alcLayoutId: null,
-      enableNpci: null,
-      platformInfoGeneric: null,
-      cpuType: null,
-      platformType: null,
-      platformCode: null,
-      ssdtBuildMode: current.ssdtBuildMode,
-      ssdtSelection: null,
-    );
+    _personalizedResult = null;
   }
 
   @override
@@ -100,25 +94,29 @@ class _HardwarePageState extends State<HardwarePage> {
     super.dispose();
   }
 
-  void _outputEfi() {
+  Future<void> _outputEfi() async {
     final info = _controller.allInfo;
     if (info == null) return;
     final ssdtBuildMode = _controller.customSsdtAvailable
         ? (_personalizedResult?.ssdtBuildMode ?? SsdtBuildMode.custom)
         : SsdtBuildMode.original;
-    final result = PersonalizedEfiResult(
-      macOSVersion: _personalizedResult?.macOSVersion ??
-          ConfigService().macOSVeriosnName.first,
-      alcLayoutId: _selectedAlcLayout ?? _personalizedResult?.alcLayoutId,
-      enableNpci: _personalizedResult?.enableNpci,
-      platformInfoGeneric: _personalizedResult?.platformInfoGeneric,
-      cpuType: _personalizedResult?.cpuType,
-      platformType: _personalizedResult?.platformType,
-      platformCode: _personalizedResult?.platformCode,
-      ssdtBuildMode: ssdtBuildMode,
-      ssdtSelection: _personalizedResult?.ssdtSelection,
-    );
-    _controller.buildAndExportEfi(
+    final result = _personalizedResult == null
+        ? await _recommendedPersonalizedResult(info, ssdtBuildMode)
+        : PersonalizedEfiResult(
+            macOSVersion: _personalizedResult!.macOSVersion,
+            alcLayoutId:
+                _selectedAlcLayout ?? _personalizedResult!.alcLayoutId,
+            enableNpci: _personalizedResult!.enableNpci,
+            platformInfoGeneric:
+                _personalizedResult!.platformInfoGeneric,
+            cpuType: _personalizedResult!.cpuType,
+            platformType: _personalizedResult!.platformType,
+            platformCode: _personalizedResult!.platformCode,
+            ssdtBuildMode: ssdtBuildMode,
+            ssdtSelection: _personalizedResult!.ssdtSelection,
+          );
+    if (!mounted) return;
+    await _controller.buildAndExportEfi(
       info: info,
       macOSVersion: result.macOSVersion,
       alcLayoutId: result.alcLayoutId,
@@ -131,6 +129,46 @@ class _HardwarePageState extends State<HardwarePage> {
       ssdtSelection: result.ssdtSelection,
       context: context,
     );
+  }
+
+  Future<PersonalizedEfiResult> _recommendedPersonalizedResult(
+    HardwareAllInfo info,
+    SsdtBuildMode ssdtBuildMode,
+  ) async {
+    try {
+      final selection = const HardwarePlatformResolver().resolve(
+        HardwareConfigBuildContext(
+          hardwareInfo: info,
+          rawInfo: _controller.rawInfo,
+          options: const HardwareConfigOptions(),
+        ),
+      );
+      final recommendation =
+          await const HardwarePlatformRecommendationResolver().resolve(
+        selection,
+      );
+      return PersonalizedEfiResult(
+        macOSVersion: recommendation.macOSVersion,
+        alcLayoutId: _selectedAlcLayout,
+        enableNpci: HardwareGpuTopology.shouldDefaultEnableNpci(
+          _controller.rawInfo,
+        ),
+        platformInfoGeneric: recommendation.smbios,
+        cpuType: selection.cpuType,
+        platformType: selection.platformType,
+        platformCode: selection.platformCode,
+        ssdtBuildMode: ssdtBuildMode,
+      );
+    } catch (_) {
+      return PersonalizedEfiResult(
+        macOSVersion: MacOSVersions.byDarwinMajor(
+          MacOSVersions.defaultDarwinMajor,
+        ).label,
+        alcLayoutId: _selectedAlcLayout,
+        enableNpci: false,
+        ssdtBuildMode: ssdtBuildMode,
+      );
+    }
   }
 
   Future<void> _openPersonalizedEfi() async {

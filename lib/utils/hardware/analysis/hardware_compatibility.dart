@@ -362,7 +362,12 @@ String _gpuSupportDetail({
     details.add(record.name);
   }
 
-  final supportPrefix = record.requiresSpoof ? '仿冒支持' : '原生支持';
+  var supportPrefix = '原生支持';
+  if (record.requiresNootRx) {
+    supportPrefix = 'NootRX 支持';
+  } else if (record.requiresSpoof) {
+    supportPrefix = '仿冒支持';
+  }
 
   details.add(
     '$supportPrefix ${_macOSRangeFromDarwin(record.minDarwin, effectiveMaxDarwin)}',

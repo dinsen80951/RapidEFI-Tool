@@ -200,7 +200,8 @@ class ConfigKernel {
       name: 'NootRX',
       note: [
         '用于支持RX6700、RX6750XT、RX6750GRE等官方不支持的RX6XXX系列独显,与WhateverGreen驱动存在冲突，安装阶段不要同时选择',
-        '支持Navi 21(Big Sur及以上)、Navi 22/23(Monterey及以上),也支持RX6650、RX6950等显卡',
+        '自动配置优先采用macOS原生支持或设备ID仿冒；仅在两者均不适用时，才按NootRX官方PCI ID匹配',
+        'NootRX源码支持Navi 21(Big Sur及以上)、Navi 22/23(Monterey及以上)，但原生或可仿冒显卡无需改用NootRX',
         '首次安装macOS时添加此驱动可能导致无法进入系统,建议完成安装后再添加',
       ]);
 

@@ -292,19 +292,19 @@ DevicePropertyItem get framebuffer_stolenmem_1k => _deviceProperty(
       'framebuffer-stolenmem',
       'data',
       '00003001',
-      "修改stolen memory至19M(适用于1080P屏幕,工具默认值,可以不用勾选.如果BIOS中有DVMT参数,建议修改至64M。BIOS如果更改了DVMT参数,可以去掉此参数)",
+      "修改stolen memory至19M(适用于1080P屏幕,工具默认值.如果BIOS中有DVMT参数,建议修改至32M及以上。BIOS如果更改了DVMT参数,可以去掉此参数)",
+    );
+DevicePropertyItem get framebuffer_stolenmem_30m => _deviceProperty(
+      'framebuffer-stolenmem',
+      'data',
+      '0000E001',
+      "修改stolen memory至30M",
     );
 DevicePropertyItem get framebuffer_stolenmem_2k => _deviceProperty(
       'framebuffer-stolenmem',
       'data',
       '00000004',
       "修改stolen memory至64M(适用于2k或4k屏幕,如果BIOS中有DVMT参数,建议修改至64M或以上。BIOS如果更改了DVMT参数,可以去掉此参数)",
-    );
-DevicePropertyItem get framebuffer_stolenmem_4k => _deviceProperty(
-      'framebuffer-stolenmem',
-      'data',
-      '00000008',
-      "修改stolen memory至128M(适用于4k屏幕,如果BIOS中有DVMT参数,,高分屏建议修改至128M或256M或以上。BIOS如果更改了DVMT参数,可以去掉此参数)",
     );
 
 List<DevicePropertyItem> get _enableHdmiCon0FixItems => [
@@ -423,18 +423,18 @@ List<IgpuDevicePropertyOption> selectableIGPUDevicePropertyOptions() {
       items: [framebuffer_stolenmem_1k, framebuffer_fbmem],
     ),
     _option(
+      id: 'stolenmem_30m',
+      title: '修改stolen memory至30M（适用于部分2.5K～3K高分屏设备.BIOS如果更改了DVMT参数,可以去掉此参数）',
+      category: igpuCategoryMemory,
+      exclusiveGroup: 'dvmt',
+      items: [framebuffer_stolenmem_30m],
+    ),
+    _option(
       id: 'stolenmem_2k',
       title: framebuffer_stolenmem_2k.comment ?? '',
       category: igpuCategoryMemory,
       exclusiveGroup: 'dvmt',
       items: [framebuffer_stolenmem_2k],
-    ),
-    _option(
-      id: 'stolenmem_4k',
-      title: framebuffer_stolenmem_4k.comment ?? '',
-      category: igpuCategoryMemory,
-      exclusiveGroup: 'dvmt',
-      items: [framebuffer_stolenmem_4k],
     ),
     _option(
       id: 'unifiedmem_1536',

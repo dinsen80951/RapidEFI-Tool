@@ -207,6 +207,7 @@ class Log {
     final levelStr = effectiveLevel.toString().split('.').last.toUpperCase();
     final logLine = '$ts [$levelStr] $message';
 
+    _publish(logLine);
     _operationQueue.add(
       _LogOperation(
         type: _LogOperationType.add,
@@ -216,6 +217,18 @@ class Log {
       ),
     );
     _processQueue();
+  }
+
+  void _publish(String logLine) {
+    _logs.add(logLine);
+    while (_logs.length > config.maxLines) {
+      _logs.removeAt(0);
+    }
+
+    _logStreamController.add(logLine);
+    _globalLogStreamController.add('[$channel] $logLine');
+
+    if (config.enablePrint) debugPrint(logLine);
   }
 
   Future<void> _processQueue() async {
@@ -236,20 +249,10 @@ class Log {
   }
 
   Future<void> _performAdd(_LogOperation op) async {
-    await _initialized;
-    await _rotateLogIfNeeded();
-
     final logLine = op.logLine!;
 
-    _logs.add(logLine);
-    while (_logs.length > config.maxLines) {
-      _logs.removeAt(0);
-    }
-
-    _logStreamController.add(logLine);
-    _globalLogStreamController.add('[$channel] $logLine');
-
-    if (config.enablePrint) debugPrint(logLine);
+    await _initialized;
+    await _rotateLogIfNeeded();
 
     _buffer.add(logLine);
     if (_buffer.length >= config.flushBatchSize) {
@@ -297,6 +300,10 @@ class Log {
       Log.width(channel: channel).add(msg, level: LogLevel.warning);
   static Future<void> error(String msg, {String? channel}) =>
       Log.width(channel: channel).add(msg, level: LogLevel.error);
+
+  /// 将执行权短暂交还事件循环，让日志面板及时绘制。
+  static Future<void> yieldToUi() =>
+      Future<void>.delayed(const Duration(milliseconds: 1));
 
   /// 清除指定日志通道的日志
   static Future<void> clear({String? channel}) async {

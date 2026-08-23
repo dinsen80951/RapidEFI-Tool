@@ -109,6 +109,11 @@ class _GpuCompatibilityPanel extends StatelessWidget {
     // 单显卡：只显示兼容性
     if (items.length == 1) {
       final item = items.first;
+      if (item.isNootRxSupported) {
+        return _GpuCompatibilityStatusText(
+          note: CompatibilityNote.supported('NootRX支持'),
+        );
+      }
       if (item.note.level == CompatibilityLevel.supported) {
         return _GpuCompatibilityStatusText(
           note: CompatibilityNote.supported('兼容'),
@@ -136,7 +141,9 @@ class _GpuCompatibilityPanel extends StatelessWidget {
     // 多显卡：如果全部兼容，只显示一个“兼容”
     if (!hasProblemGpu) {
       return _GpuCompatibilityStatusText(
-        note: CompatibilityNote.supported('兼容'),
+        note: CompatibilityNote.supported(
+          items.any((item) => item.isNootRxSupported) ? 'NootRX支持' : '兼容',
+        ),
       );
     }
 
@@ -236,11 +243,13 @@ class _GpuCompatibilityItem {
     required this.name,
     required this.note,
     required this.record,
+    required this.isNootRxSupported,
   });
 
   final String name;
   final CompatibilityNote note;
   final GpuCompatibilityRecord? record;
+  final bool isNootRxSupported;
 
   bool get isLoadingCompatibility => note.text == '兼容性加载中';
 
@@ -253,6 +262,8 @@ class _GpuCompatibilityItem {
   }
 
   String get detailText {
+    if (isNootRxSupported) return 'NootRX支持';
+
     final hidden = <String>{
       name.trim(),
       record?.name.trim() ?? '',
@@ -286,6 +297,9 @@ class _GpuCompatibilityItem {
       name: hardwareGpuDisplayName(entry.key, gpu, record: record),
       note: note,
       record: record,
+      isNootRxSupported: GpuCompatibilityData.isNootRxSupportedDeviceIdSync(
+        safeStr(gpu['Device ID']),
+      ),
     );
   }
 

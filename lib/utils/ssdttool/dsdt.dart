@@ -757,6 +757,88 @@ class DSDT {
     }
   }
 
+  /// 使用已加载的引用表重新反编译指定表。
+  Future<Map<String, dynamic>> disassembleTableWithReferences(
+    String tableName,
+    List<String> referenceTableNames,
+  ) async {
+    String? tableKey(String requested) {
+      final lower = requested.toLowerCase();
+      for (final key in acpiTables.keys) {
+        if (key.toLowerCase() == lower) return key;
+      }
+      return null;
+    }
+
+    final targetKey = tableKey(tableName);
+    if (targetKey == null || referenceTableNames.isEmpty) return {};
+    final target = acpiTables[targetKey];
+    if (target is! Map) return {};
+
+    Directory? temporary;
+    try {
+      temporary = await Directory.systemTemp.createTemp('rapidefi_acpi_');
+
+      Future<String?> materialize(String key, dynamic rawTable) async {
+        if (rawTable is! Map) return null;
+        final raw = rawTable['raw'];
+        if (raw is! List<int> || raw.isEmpty) return null;
+        final fileName = path.basename(key);
+        await File(path.join(temporary!.path, fileName)).writeAsBytes(raw);
+        return fileName;
+      }
+
+      final targetFile = await materialize(targetKey, target);
+      if (targetFile == null) return {};
+
+      final references = <String>[];
+      for (final requested in referenceTableNames) {
+        final key = tableKey(requested);
+        if (key == null || key == targetKey) continue;
+        final fileName = await materialize(key, acpiTables[key]);
+        if (fileName != null) references.add(fileName);
+      }
+      if (references.isEmpty) return {};
+
+      final result = await r.run([
+        {
+          'args': [
+            acpiTool.iasl,
+            '-e',
+            ...references,
+            '-dl',
+            '-l',
+            targetFile,
+          ],
+          'workingDirectory': temporary.path,
+        },
+      ]);
+      if (result.isEmpty || result.last != '0') return {};
+
+      final dslName = '${path.basenameWithoutExtension(targetFile)}.dsl';
+      final dsl = File(path.join(temporary.path, dslName));
+      if (!await dsl.exists()) return {};
+      var content = await dsl.readAsString();
+      if (content.startsWith('/*')) {
+        final end = content.indexOf('*/');
+        if (end >= 0) content = content.substring(end + 2).trim();
+      }
+
+      final corrected = Map<String, dynamic>.from(target)
+        ..['table'] = content
+        ..['lines'] = content.split('\n');
+      corrected['scopes'] = getScopes(table: corrected);
+      corrected['paths'] = getPaths(table: corrected);
+      return corrected;
+    } catch (_) {
+      return {};
+    } finally {
+      if (temporary != null && await temporary.exists()) {
+        await temporary.delete(recursive: true);
+      }
+    }
+  }
+
   Future<String?> _getDumpToolPath({bool useLocaliAsl = false}) async {
     final String dir = await acpiTool.getExecutableDir();
     final fileName = Platform.isWindows
@@ -1145,6 +1227,150 @@ class DSDT {
     }
 
     return minPad ?? ("", "");
+  }
+
+  /// 搜集所有可能的包含Notify BATx方法
+  /// [batteryNames] 电池名称列表，例如 ["BAT0", "BAT1"]
+  Map<String, Map<String, dynamic>> collectBatteryNotifyMethods({
+    required List<String> batteryNames,
+    required Map<String, dynamic>? table,
+    bool stripComments = true,
+  }) {
+    table ??= getDsdt();
+    if (table?["lines"] == null) {
+      Log("=> $table: 无效的 table 参数");
+      return {};
+    }
+
+    final List<String> lines = (table?["lines"] as List).cast<String>();
+    final Map<String, Map<String, dynamic>> notifyMethods = {};
+
+    /// Method 定义匹配
+    final methodRegex = RegExp(
+      r'^\s*Method\s*\(\s*([A-Za-z0-9_]+)\s*,\s*(\d+)\s*,\s*([A-Za-z]+)',
+      caseSensitive: false,
+    );
+
+    /// 生成 Notify 正则列表
+    final notifyRegexList = batteryNames.map((batteryName) {
+      return RegExp(
+        r'Notify\s*\(\s*(?:[\\^A-Z0-9_\.]+\.)?' +
+            RegExp.escape(batteryName) +
+            r'\s*,',
+        caseSensitive: false,
+      );
+    }).toList();
+
+    for (int i = 0; i < lines.length; i++) {
+      final match = methodRegex.firstMatch(lines[i]);
+      if (match == null) continue;
+
+      try {
+        /// 提取完整 Method block
+        final methodLines = getScope(
+          startingIndex: i,
+          stripComments: stripComments,
+          table: table,
+        );
+
+        if (methodLines.isEmpty) continue;
+
+        final methodText = methodLines.join('\n');
+
+        /// 检测是否包含 Notify BATx
+        bool hasNotify = false;
+        for (final reg in notifyRegexList) {
+          if (reg.hasMatch(methodText)) {
+            hasNotify = true;
+            break;
+          }
+        }
+
+        if (!hasNotify) continue;
+
+        ///
+        final methodName = match.group(1) ?? "";
+        String methodPath = "";
+        final methodPaths = getMethodPaths(obj: methodName);
+        if (methodPaths.isNotEmpty && methodPaths.first.isNotEmpty) {
+          methodPath = _getParentScope(methodPaths[0][0]);
+        }
+
+        final methodInfo = {
+          "text": methodText,
+          "type": "MethodObj",
+          "name": match.group(1) ?? "",
+          "argCount": int.tryParse(match.group(2) ?? "0") ?? 0,
+          "flags": match.group(3) ?? "NotSerialized",
+          "scope": methodPath,
+          "table": table,
+        };
+
+        notifyMethods[methodInfo["name"] as String] = methodInfo;
+      } catch (e) {
+        Log.warning("collectBatteryNotifyMethods: 解析 Method 失败: $e");
+      }
+    }
+
+    return notifyMethods;
+  }
+
+  String _getParentScope(String path) {
+    final idx = path.lastIndexOf('.');
+    if (idx == -1) return path; // 没有父级
+    return path.substring(0, idx);
+  }
+
+  /// 获取指定 Scope 路径的所有 Scope 块。
+  List<List<String>> getScopesOfPath({
+    required String scopePath,
+    required Map<String, dynamic>? table,
+    bool stripComments = true,
+  }) {
+    table ??= getDsdt();
+    if (table?["lines"] == null) {
+      Log("=> $table getScopesOfPath: 无效的 table 参数");
+      return <List<String>>[];
+    }
+
+    final lines = (table?["lines"] as List).cast<String>();
+    final results = <List<String>>[];
+    final scopeName = scopePath.split('.').last;
+    final scopeRegex = RegExp(
+      r'^\s*Scope\s*\(\s*([^\)]+)\s*\)',
+      caseSensitive: false,
+    );
+
+    for (var i = 0; i < lines.length; i++) {
+      final match = scopeRegex.firstMatch(lines[i]);
+      if (match == null) continue;
+
+      final foundPath = match.group(1)!.trim();
+      final target = scopePath.trim();
+      final targetWithSlash = target.startsWith(r'\') ? target : r'\' + target;
+      final targetWithoutSlash =
+          target.startsWith(r'\') ? target.substring(1) : target;
+      var isMatch = foundPath.toLowerCase() == targetWithSlash.toLowerCase() ||
+          foundPath.toLowerCase() == targetWithoutSlash.toLowerCase();
+
+      if (!scopePath.contains('.')) {
+        final last = foundPath.replaceFirst(RegExp(r'^\\'), '').split('.').last;
+        if (last.toLowerCase() == scopeName.toLowerCase()) isMatch = true;
+      }
+      if (!isMatch) continue;
+
+      try {
+        final scopeLines = getScope(
+          startingIndex: i,
+          stripComments: stripComments,
+          table: table,
+        );
+        if (scopeLines.isNotEmpty) results.add(scopeLines);
+      } catch (error) {
+        Log.warning("getScopesOfPath: 提取 Scope 时发生错误: $error");
+      }
+    }
+    return results;
   }
 
   /// 获取某个设备的完整 Scope（设备体内的所有行）
@@ -1739,6 +1965,165 @@ class DSDT {
       }
     }
     return devices;
+  }
+
+  /// 获取DSDT根作用域下的所有Field变量
+  /// 整理成一个List列表，每个列表是一个字典元素
+  /// 该字典包含该变量所属Field名，字节长度，位长度，偏移
+  List<Map<String, dynamic>> getRootFieldVariables({
+    Map<String, dynamic>? table,
+  }) {
+    table ??= getDsdt();
+    final List<Map<String, dynamic>> fieldVariables = [];
+    if (!table!.containsKey('lines')) {
+      return fieldVariables;
+    }
+
+    final lines = table['lines'] as List<String>;
+    bool inField = false;
+    String currentFieldName = "";
+    int currentOffset = 0;
+
+    for (final line in lines) {
+      final trimmedLine = line.trim();
+
+      // 检查是否进入Field区域
+      if (trimmedLine.startsWith('Field (')) {
+        inField = true;
+        // 提取Field名称（如果有）
+        final fieldMatch = RegExp(
+          r'Field\s*\(\s*\S+\s*,\s*(\S+)',
+        ).firstMatch(trimmedLine);
+        if (fieldMatch != null) {
+          currentFieldName = fieldMatch.group(1)!;
+        }
+        currentOffset = 0;
+      }
+      // 检查是否退出Field区域
+      else if (inField && trimmedLine == '}') {
+        inField = false;
+        currentFieldName = "";
+      }
+      // 在Field区域内，检查字段定义
+      else if (inField) {
+        // 匹配字段定义，如 "OSYS,   16,"
+        final fieldMatch = RegExp(
+          r'^\s*([A-Z0-9_]+)\s*,\s*(\d+)\s*,?',
+        ).firstMatch(trimmedLine);
+        if (fieldMatch != null) {
+          final fieldName = fieldMatch.group(1)!;
+          final bitLength = int.parse(fieldMatch.group(2)!);
+          final byteLength = (bitLength + 7) ~/ 8;
+
+          fieldVariables.add({
+            "fieldName": currentFieldName,
+            "name": fieldName,
+            "byteLength": byteLength,
+            "bitLength": bitLength,
+            "offset": currentOffset,
+          });
+
+          // 更新偏移量（按位计算）
+          currentOffset += (bitLength + 7) ~/ 8;
+        }
+      }
+    }
+
+    return fieldVariables;
+  }
+
+  /// 检测 Name 对象类型
+  /// [nameText] Name 对象文本（完整 Name(...) 语句，允许多行）
+  String detectNameType(String nameText) {
+    final upper = nameText.toUpperCase();
+
+    // 取逗号后内容
+    final commaIndex = upper.indexOf(',');
+    if (commaIndex == -1) return "UnknownObj";
+
+    final valuePart = upper.substring(commaIndex + 1);
+
+    if (valuePart.contains("PACKAGE")) {
+      return "PkgObj";
+    }
+
+    if (valuePart.contains("BUFFER")) {
+      return "BuffObj";
+    }
+
+    if (valuePart.contains("EISAID")) {
+      return "IntObj";
+    }
+
+    if (RegExp(r'\b(ZERO|ONE|ONES)\b').hasMatch(valuePart)) {
+      return "IntObj";
+    }
+
+    if (RegExp(r'0X[0-9A-F]+|\b\d+\b').hasMatch(valuePart)) {
+      return "IntObj";
+    }
+
+    return "UnknownObj";
+  }
+
+  /// 获取 ACPI 根作用域下的所有 Name 变量及其类型
+  List<Map<String, dynamic>> getRootNameTypeByName({
+    Map<String, dynamic>? table,
+  }) {
+    table ??= getDsdt();
+    final List<Map<String, dynamic>> nameVariables = [];
+    if (table == null || !table.containsKey('lines')) {
+      return nameVariables;
+    }
+
+    final lines = table['lines'] as List<String>;
+
+    for (int i = 0; i < lines.length; i++) {
+      final trimmedLine = lines[i].trim();
+
+      // 完全按 getRootFieldVariables 扫描方式：只要遇到 Name( 开头就采集。
+      if (!trimmedLine.startsWith('Name (')) continue;
+
+      final buffer = StringBuffer();
+      int paren = 0;
+      bool started = false;
+      int t = i;
+
+      for (; t < lines.length; t++) {
+        final current = lines[t];
+        buffer.writeln(current);
+        for (final ch in current.split('')) {
+          if (ch == '(') {
+            paren++;
+            started = true;
+          } else if (ch == ')') {
+            paren--;
+          }
+        }
+        if (started && paren == 0) break;
+      }
+
+      final text = buffer.toString().trim();
+      final match = RegExp(
+        r'^\s*Name\s*\(\s*([A-Za-z0-9_]+)\s*,',
+        caseSensitive: false,
+      ).firstMatch(text);
+      final varName = (match?.group(1) ?? "").trim().toUpperCase();
+      if (varName.isEmpty) {
+        i = t;
+        continue;
+      }
+
+      nameVariables.add({
+        "name": varName,
+        "type": detectNameType(text),
+        "text": text,
+      });
+
+      i = t;
+    }
+
+    return nameVariables;
   }
 
   /// 获取包含指定 CID 的设备路径

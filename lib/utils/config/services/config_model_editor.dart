@@ -27,6 +27,7 @@ import 'package:rapidefi/utils/config/presets/sections/config_kernel.dart';
 import 'package:rapidefi/utils/config/presets/sections/config_nvram.dart';
 import 'package:rapidefi/utils/config/services/config_session.dart';
 import 'package:rapidefi/utils/config/services/config_service.dart';
+import 'package:rapidefi/utils/config/support/intel_igpu_memory_policy.dart';
 import 'package:rapidefi/utils/config/support/platform_properties.dart';
 import 'package:rapidefi/utils/config/support/surface_support.dart';
 import 'package:rapidefi/utils/config/support/wifi_oclp_support.dart';
@@ -228,6 +229,8 @@ class ConfigModelEditor {
     } else if (configModel.brand != Brand.microsoft) {
       SurfaceSupport.removeManagedSurfaceKexts(configModel);
     }
+
+    IntelIgpuMemoryPolicy.applySurfaceDefault(configModel);
   }
 
   void updateRyzenMMIO(bool usePrecastMMIO) =>

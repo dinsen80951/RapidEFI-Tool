@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:flutter/material.dart';
 import 'package:rapidefi/pages/manual/widgets/platform/os_version.dart';
@@ -12,7 +14,9 @@ import 'package:rapidefi/utils/config/support/smbios_compatibility.dart';
 import 'package:rapidefi/utils/hardware/analysis/hardware_analysis.dart';
 import 'package:rapidefi/utils/hardware/config/hardware_config_build_context.dart';
 import 'package:rapidefi/utils/hardware/config/hardware_config_options.dart';
+import 'package:rapidefi/utils/hardware/config/hardware_gpu_topology.dart';
 import 'package:rapidefi/utils/hardware/config/hardware_platform_resolver.dart';
+import 'package:rapidefi/utils/hardware/config/hardware_platform_recommendation.dart';
 import 'package:rapidefi/utils/hardware/model/allinfo.dart';
 import 'package:rapidefi/utils/hardware/ssdt/ssdt_platform_catalog.dart';
 import 'package:rapidefi/utils/hardware/ssdt/ssdt_selection.dart';
@@ -134,6 +138,11 @@ class _PersonalizedEfiDialogState extends State<PersonalizedEfiDialog> {
   String? _alcModel;
   List<int> _alcLayouts = [];
   Set<String> _selectedSsdtKeys = {};
+  int _platformRecommendationRevision = 0;
+  bool _isLoadingPlatformRecommendation = false;
+
+  bool get _onlyIntegratedGraphics =>
+      HardwareGpuTopology.hasOnlyIntegratedGraphics(widget.rawInfo);
 
   int get _selectedDarwinMajor =>
       MacOSVersions.darwinMajorFromLabel(_selectedVersion);
@@ -162,18 +171,25 @@ class _PersonalizedEfiDialogState extends State<PersonalizedEfiDialog> {
   @override
   void initState() {
     super.initState();
-    final versions = ConfigService().macOSVeriosnName;
-    _selectedVersion = widget.initialMacOSVersion ??
-        (versions.isNotEmpty ? versions.first : '');
+    final initialVersion = widget.initialMacOSVersion?.trim();
+    _selectedVersion = initialVersion != null && initialVersion.isNotEmpty
+        ? initialVersion
+        : MacOSVersions.byDarwinMajor(
+            MacOSVersions.defaultDarwinMajor,
+          ).label;
     _selectedSsdtBuildMode = widget.customSsdtAvailable
         ? widget.initialSsdtBuildMode
         : SsdtBuildMode.original;
     _initPlatform();
     _parseHardware();
-    _syncPlatformInfoGeneric(
-      current: widget.initialPlatformInfoGeneric,
-      preferCurrent: true,
-    );
+    if (initialVersion != null && initialVersion.isNotEmpty) {
+      _syncPlatformInfoGeneric(
+        current: widget.initialPlatformInfoGeneric,
+        preferCurrent: true,
+      );
+    } else {
+      unawaited(_applyPlatformRecommendation());
+    }
     _selectedSsdtKeys =
         widget.initialSsdtSelection?.items.map((item) => item.key).toSet() ??
             _defaultSelectedSsdtKeys();
@@ -243,7 +259,10 @@ class _PersonalizedEfiDialogState extends State<PersonalizedEfiDialog> {
 
   void _parseHardware() {
     final data = widget.rawInfo;
-    if (data == null) return;
+    if (data == null) {
+      _enableNpci = widget.initialEnableNpci ?? false;
+      return;
+    }
 
     final audioLayout = audioLayoutAnalysis(
       data,
@@ -256,7 +275,7 @@ class _PersonalizedEfiDialogState extends State<PersonalizedEfiDialog> {
     }
 
     _enableNpci = widget.initialEnableNpci ??
-        (safeMap(data['BIOS'])['Above 4G Decoding'] != true);
+        HardwareGpuTopology.shouldDefaultEnableNpci(data);
   }
 
   void _changePlatform({
@@ -271,8 +290,36 @@ class _PersonalizedEfiDialogState extends State<PersonalizedEfiDialog> {
           ? _defaultPlatformCode(_selectedCpuType, _selectedPlatformType)
           : _validPlatformCode(platformCode);
       _selectedSsdtKeys = _defaultSelectedSsdtKeys();
-      _syncPlatformInfoGeneric();
     });
+    unawaited(_applyPlatformRecommendation());
+  }
+
+  Future<void> _applyPlatformRecommendation() async {
+    final revision = ++_platformRecommendationRevision;
+    _isLoadingPlatformRecommendation = true;
+    final selection = HardwarePlatformSelection(
+      cpuType: _selectedCpuType,
+      platformType: _selectedPlatformType,
+      platformCode: _selectedPlatformCode,
+    );
+    try {
+      final recommendation =
+          await const HardwarePlatformRecommendationResolver().resolve(
+        selection,
+      );
+      if (!mounted || revision != _platformRecommendationRevision) return;
+      setState(() {
+        _isLoadingPlatformRecommendation = false;
+        _selectedVersion = recommendation.macOSVersion;
+        _selectedPlatformInfoGeneric = recommendation.smbios;
+      });
+    } catch (_) {
+      if (!mounted || revision != _platformRecommendationRevision) return;
+      setState(() {
+        _isLoadingPlatformRecommendation = false;
+        _syncPlatformInfoGeneric();
+      });
+    }
   }
 
   Set<String> _defaultSelectedSsdtKeys() {
@@ -308,10 +355,28 @@ class _PersonalizedEfiDialogState extends State<PersonalizedEfiDialog> {
     bool preferCurrent = false,
   }) {
     final candidates = _platformInfoGenerics;
-    _selectedPlatformInfoGeneric = SMBIOSCompatibility.recommendForDarwinMajor(
+    final preferred = preferCurrent
+        ? current ?? _selectedPlatformInfoGeneric
+        : _selectedPlatformInfoGeneric;
+    if (preferred != null &&
+        candidates.any(
+          (candidate) =>
+              candidate.systemProductName == preferred.systemProductName,
+        ) &&
+        SMBIOSCompatibility.supportsDarwinMajor(
+          preferred,
+          _selectedDarwinMajor,
+        )) {
+      _selectedPlatformInfoGeneric = candidates.firstWhere(
+        (candidate) =>
+            candidate.systemProductName == preferred.systemProductName,
+      );
+      return;
+    }
+    _selectedPlatformInfoGeneric =
+        SMBIOSCompatibility.recommendClosestForDarwinMajor(
       candidates,
       _selectedDarwinMajor,
-      current: preferCurrent ? current : _selectedPlatformInfoGeneric,
     );
   }
 
@@ -377,21 +442,25 @@ class _PersonalizedEfiDialogState extends State<PersonalizedEfiDialog> {
           child: const Text('取消'),
         ),
         ElevatedButton(
-          onPressed: () => Navigator.pop(
-            context,
-            PersonalizedEfiResult(
-              macOSVersion: _selectedVersion,
-              alcLayoutId: _selectedAlcLayout,
-              enableNpci: _enableNpci,
-              platformInfoGeneric: _selectedPlatformInfoGeneric,
-              cpuType: _selectedCpuType,
-              platformType: _selectedPlatformType,
-              platformCode: _selectedPlatformCode,
-              ssdtBuildMode: _selectedSsdtBuildMode,
-              ssdtSelection: _buildSsdtSelection(),
-            ),
+          onPressed: _isLoadingPlatformRecommendation
+              ? null
+              : () => Navigator.pop(
+                    context,
+                    PersonalizedEfiResult(
+                      macOSVersion: _selectedVersion,
+                      alcLayoutId: _selectedAlcLayout,
+                      enableNpci: _enableNpci,
+                      platformInfoGeneric: _selectedPlatformInfoGeneric,
+                      cpuType: _selectedCpuType,
+                      platformType: _selectedPlatformType,
+                      platformCode: _selectedPlatformCode,
+                      ssdtBuildMode: _selectedSsdtBuildMode,
+                      ssdtSelection: _buildSsdtSelection(),
+                    ),
+                  ),
+          child: Text(
+            _isLoadingPlatformRecommendation ? '正在匹配平台...' : '确认',
           ),
-          child: const Text('确认'),
         ),
       ],
     );
@@ -408,6 +477,8 @@ class _PersonalizedEfiDialogState extends State<PersonalizedEfiDialog> {
             verions: ConfigService().macOSVeriosnName,
             macOSVersion: _selectedVersion,
             onChanged: (info) => setState(() {
+              _platformRecommendationRevision++;
+              _isLoadingPlatformRecommendation = false;
               _selectedVersion = info;
               _syncPlatformInfoGeneric(preferCurrent: true);
             }),
@@ -417,6 +488,8 @@ class _PersonalizedEfiDialogState extends State<PersonalizedEfiDialog> {
               platformInfoGenerics: _supportedPlatformInfoGenerics,
               selectedChoice: _selectedPlatformInfoGeneric,
               onChanged: (platformInfoGeneric) => setState(() {
+                _platformRecommendationRevision++;
+                _isLoadingPlatformRecommendation = false;
                 final darwinMajor =
                     SMBIOSCompatibility.recommendDarwinMajorForSMBIOS(
                   platformInfoGeneric,
@@ -452,13 +525,16 @@ class _PersonalizedEfiDialogState extends State<PersonalizedEfiDialog> {
               snippet: 'AppleALC 支持多个布局 ID，不同 ID 可能影响音频接口可用性。',
             ),
           TitleCard(
-            title: 'Above 4G Decoding设置',
+            title: 'Above 4G Decoding 设置',
             content: ChoiceChipTile(
-              label: '添加npci=0x2000启动参数',
+              label: '添加 npci=0x2000 启动参数',
               selected: _enableNpci,
               onChanged: (bo) => setState(() => _enableNpci = bo),
             ),
-            snippet: '主板 BIOS 中 Above 4G Decoding 未开启时，建议勾选此参数；已开启时去掉该启动参数。',
+            snippet: _onlyIntegratedGraphics
+                ? '当前识别为仅核显平台。仅核显通常不需要使用 npci 参数。只有在启动卡在 ACPI Configuration Begin，或确认存在 PCI 资源分配错误时再手动尝试。若 BIOS 已开启 Above 4G Decoding，请勿同时添加 npci 参数。'
+                : 'npci=0x2000 主要用于 BIOS 没有 Above 4G Decoding 选项或该选项关闭，并且启动时确实发生 PCI 资源分配问题的情况，常见于部分老旧工作站、服务器、AMD 平台或带多块独显的配置。优先在 BIOS 中开启 Above 4G Decoding；BIOS 选项与 npci 参数二选一，不要同时启用。没有相关启动故障时通常不需要添加。',
+            initiallyExpanded: true,
           ),
         ],
       ),

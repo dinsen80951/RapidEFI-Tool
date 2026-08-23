@@ -264,8 +264,7 @@ class _IgpuBaseState extends State<IgpuBase> {
       ),
       child: ExpansionTile(
         initiallyExpanded: false,
-        tilePadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
         title: const Text(
           '从 CPU 型号加载核显配置',
           style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
@@ -273,8 +272,7 @@ class _IgpuBaseState extends State<IgpuBase> {
         subtitle: _selectedCpu != null
             ? Text(
                 '已选：${_selectedCpu!.cpuModel}  ${_selectedCpu!.igpuName}',
-                style:
-                    TextStyle(fontSize: 12, color: colorScheme.primary),
+                style: TextStyle(fontSize: 12, color: colorScheme.primary),
               )
             : const Text(
                 '选择 CPU 代数和型号，勾选要应用的属性',
@@ -282,8 +280,7 @@ class _IgpuBaseState extends State<IgpuBase> {
               ),
         children: [
           Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: _fbLoading
                 ? const Center(child: CircularProgressIndicator())
                 : Column(
@@ -308,9 +305,8 @@ class _IgpuBaseState extends State<IgpuBase> {
   // ── 两个下拉 ──────────────────────────────────────────────────
   Widget _buildDropdownRow(BuildContext context) {
     final genNames = _generations.map((g) => g.name).toList();
-    final currentGen = _generations
-        .where((g) => g.name == _selectedGeneration)
-        .firstOrNull;
+    final currentGen =
+        _generations.where((g) => g.name == _selectedGeneration).firstOrNull;
     final cpuList = currentGen?.cpus ?? <IigpufbCpuEntry>[];
 
     return Wrap(
@@ -322,7 +318,7 @@ class _IgpuBaseState extends State<IgpuBase> {
         SizedBox(
           width: 230,
           child: DropdownButtonFormField<String>(
-            value: _selectedGeneration,
+            initialValue: _selectedGeneration,
             isExpanded: true,
             decoration: const InputDecoration(
               labelText: 'CPU 代数',
@@ -333,8 +329,7 @@ class _IgpuBaseState extends State<IgpuBase> {
             ),
             hint: const Text('选择代数'),
             items: genNames
-                .map((g) =>
-                    DropdownMenuItem(value: g, child: Text(g)))
+                .map((g) => DropdownMenuItem(value: g, child: Text(g)))
                 .toList(),
             onChanged: _onGenerationChanged,
           ),
@@ -343,7 +338,7 @@ class _IgpuBaseState extends State<IgpuBase> {
         SizedBox(
           width: 260,
           child: DropdownButtonFormField<IigpufbCpuEntry>(
-            value: _selectedCpu,
+            initialValue: _selectedCpu,
             isExpanded: true,
             decoration: InputDecoration(
               labelText: 'CPU 型号',
@@ -377,11 +372,9 @@ class _IgpuBaseState extends State<IgpuBase> {
 
     return Container(
       width: double.infinity,
-      padding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest
-            .withValues(alpha: 0.4),
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Wrap(
@@ -462,14 +455,12 @@ class _IgpuBaseState extends State<IgpuBase> {
                 ),
                 const Text(
                   '选择要应用的属性',
-                  style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(width: 8),
                 Text(
                   '(${_checkedIndices.length}/${props.length} 已选)',
-                  style: const TextStyle(
-                      fontSize: 12, color: Colors.grey),
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
             ),
@@ -499,12 +490,10 @@ class _IgpuBaseState extends State<IgpuBase> {
     return InkWell(
       onTap: () => _toggleIndex(idx),
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
         decoration: BoxDecoration(
           color: checked
-              ? colorScheme.primaryContainer
-                  .withValues(alpha: 0.25)
+              ? colorScheme.primaryContainer.withValues(alpha: 0.25)
               : null,
           borderRadius: BorderRadius.circular(4),
         ),
@@ -513,8 +502,7 @@ class _IgpuBaseState extends State<IgpuBase> {
             Checkbox(
               value: checked,
               onChanged: (_) => _toggleIndex(idx),
-              materialTapTargetSize:
-                  MaterialTapTargetSize.shrinkWrap,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               visualDensity: VisualDensity.compact,
             ),
             // key 名
@@ -525,17 +513,14 @@ class _IgpuBaseState extends State<IgpuBase> {
                 style: TextStyle(
                   fontSize: 12,
                   fontFamily: 'monospace',
-                  color: checked
-                      ? colorScheme.primary
-                      : colorScheme.onSurface,
+                  color: checked ? colorScheme.primary : colorScheme.onSurface,
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
             // 类型徽章
             Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 5, vertical: 1),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
               decoration: BoxDecoration(
                 color: isData
                     ? Colors.blue.withValues(alpha: 0.15)
@@ -555,8 +540,7 @@ class _IgpuBaseState extends State<IgpuBase> {
             Expanded(
               child: Text(
                 prop.value,
-                style: const TextStyle(
-                    fontSize: 12, fontFamily: 'monospace'),
+                style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -565,5 +549,4 @@ class _IgpuBaseState extends State<IgpuBase> {
       ),
     );
   }
-
 }

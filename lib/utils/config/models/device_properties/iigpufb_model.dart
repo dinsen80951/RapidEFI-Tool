@@ -1,5 +1,5 @@
-/// iigpufb.json 数据模型
-/// 层次：代数 → CPU型号 → 属性列表
+// iigpufb.json 数据模型
+// 层次：代数 → CPU型号 → 属性列表
 
 /// 单个核显属性（已将 JSON 原始值转换为 plist 可用格式）
 class IigpufbProperty {
@@ -56,8 +56,7 @@ class IigpufbCpuEntry {
   /// Platform ID 值（已去掉 "0x" 前缀）
   String? get platformId {
     for (final p in properties) {
-      if (p.key == 'AAPL,ig-platform-id' ||
-          p.key == 'AAPL,snb-platform-id') {
+      if (p.key == 'AAPL,ig-platform-id' || p.key == 'AAPL,snb-platform-id') {
         return p.value;
       }
     }
@@ -67,8 +66,7 @@ class IigpufbCpuEntry {
   /// Platform ID 键名（Sandy Bridge 与其他代不同）
   String? get platformIdKey {
     for (final p in properties) {
-      if (p.key == 'AAPL,ig-platform-id' ||
-          p.key == 'AAPL,snb-platform-id') {
+      if (p.key == 'AAPL,ig-platform-id' || p.key == 'AAPL,snb-platform-id') {
         return p.key;
       }
     }

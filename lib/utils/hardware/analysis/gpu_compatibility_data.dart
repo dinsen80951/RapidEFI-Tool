@@ -7,6 +7,7 @@ class GpuCompatibilityData {
 
   static Map<String, dynamic>? _vendors;
   static Future<void>? _loadFuture;
+  static Set<String>? _nootRxDeviceIds;
 
   const GpuCompatibilityData._();
 
@@ -45,6 +46,7 @@ class GpuCompatibilityData {
     if (groupsRaw is! Map) return null;
 
     final groups = Map<String, dynamic>.from(groupsRaw);
+    GpuCompatibilityRecord? driverFallback;
 
     for (final groupEntry in groups.entries) {
       final groupRaw = groupEntry.value;
@@ -58,7 +60,7 @@ class GpuCompatibilityData {
       final deviceRaw = devices[id];
       if (deviceRaw is! Map) continue;
 
-      return _recordFromRaw(
+      final record = _recordFromRaw(
         id: id,
         vendorId: vendorId,
         groupName: groupEntry.key,
@@ -66,9 +68,14 @@ class GpuCompatibilityData {
         group: group,
         device: Map<String, dynamic>.from(deviceRaw),
       );
+      if (record.requiresNootRx) {
+        driverFallback ??= record;
+        continue;
+      }
+      return record;
     }
 
-    return null;
+    return driverFallback;
   }
 
   static List<GpuCompatibilityRecord> identityOverrideRecordsSync() {
@@ -129,6 +136,48 @@ class GpuCompatibilityData {
     return records;
   }
 
+  static Set<String> nootRxDeviceIdsSync() {
+    final cached = _nootRxDeviceIds;
+    if (cached != null) return cached;
+
+    final vendors = _requireVendors();
+    final ids = <String>{};
+
+    for (final vendorEntry in vendors.entries) {
+      final vendorRaw = vendorEntry.value;
+      if (vendorRaw is! Map) continue;
+      final groupsRaw = vendorRaw['groups'];
+      if (groupsRaw is! Map) continue;
+
+      for (final groupRaw in groupsRaw.values) {
+        if (groupRaw is! Map) continue;
+        final groupDriver = _str(groupRaw['supportDriver']).toLowerCase();
+        final devicesRaw = groupRaw['devices'];
+        if (devicesRaw is! Map) continue;
+
+        for (final deviceEntry in devicesRaw.entries) {
+          final deviceRaw = deviceEntry.value;
+          if (deviceRaw is! Map) continue;
+          final deviceDriver = _str(
+            deviceRaw['supportDriver'],
+            fallback: groupDriver,
+          ).toLowerCase();
+          if (deviceDriver == 'nootrx') {
+            ids.add(normalizeFullDeviceId(deviceEntry.key.toString()));
+          }
+        }
+      }
+    }
+
+    return _nootRxDeviceIds = Set<String>.unmodifiable(ids);
+  }
+
+  static bool isNootRxSupportedDeviceIdSync(String? rawDeviceId) {
+    if (_vendors == null) return false;
+    final id = normalizeFullDeviceId(rawDeviceId);
+    return id.isNotEmpty && nootRxDeviceIdsSync().contains(id);
+  }
+
   static String normalizeFullDeviceId(String? value) {
     if (value == null) return '';
 
@@ -184,14 +233,26 @@ class GpuCompatibilityData {
       vendor: _str(group['vendor'], fallback: _str(vendor['vendor'])),
       name: _str(device['name']),
       codename: _str(device['codename'], fallback: _str(group['codename'])),
-      minDarwin: _str(group['minDarwin']),
-      maxDarwin: _str(group['maxDarwin']),
-      minOclp: _nullableStr(group['minOclp']),
-      maxOclp: _nullableStr(group['maxOclp']),
+      minDarwin: _str(
+        device['minDarwin'],
+        fallback: _str(group['minDarwin']),
+      ),
+      maxDarwin: _str(
+        device['maxDarwin'],
+        fallback: _str(group['maxDarwin']),
+      ),
+      minOclp:
+          _nullableStr(device['minOclp']) ?? _nullableStr(group['minOclp']),
+      maxOclp:
+          _nullableStr(device['maxOclp']) ?? _nullableStr(group['maxOclp']),
       avx2Limited: _bool(device['avx2Limited']) || _bool(group['avx2Limited']),
       vgaLimited: _bool(device['vgaLimited']) || _bool(group['vgaLimited']),
       spoofId: _nullableStr(device['spoofId']) ??
           _nullableStr(group['spoofId']),
+      supportDriver: _str(
+        device['supportDriver'],
+        fallback: _str(group['supportDriver']),
+      ),
       sortIndex: _int(device['_sortIndex']),
     );
   }
@@ -308,6 +369,7 @@ class GpuCompatibilityRecord {
   final bool vgaLimited;
 
   final String? spoofId;
+  final String supportDriver;
   final int sortIndex;
 
   const GpuCompatibilityRecord({
@@ -324,10 +386,19 @@ class GpuCompatibilityRecord {
     required this.avx2Limited,
     required this.vgaLimited,
     required this.spoofId,
+    required this.supportDriver,
     this.sortIndex = 0,
   });
 
   bool get requiresSpoof => spoofId != null && spoofId!.isNotEmpty;
+
+  bool get requiresNootRx => supportDriver.toLowerCase() == 'nootrx';
+
+  bool supportsDarwinMajor(int major) {
+    final target = DarwinVersion('$major.0.0');
+    return target.compareTo(DarwinVersion(minDarwin)) >= 0 &&
+        target.compareTo(DarwinVersion(maxDarwin)) <= 0;
+  }
 
   String? get spoofDeviceIdPart =>
       GpuCompatibilityData.deviceIdPart(spoofId);

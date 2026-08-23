@@ -2,10 +2,12 @@ import 'package:rapidefi/utils/config/config_model.dart';
 import 'package:rapidefi/utils/hardware/ssdt/ssdt_selection.dart';
 
 Set<String> customSsdtManagedAmlPaths(SsdtSelection selection) {
-  return selection.items
+  final paths = selection.items
       .map((item) => _amlPath(item.name))
       .where((path) => path.isNotEmpty)
       .toSet();
+  if (paths.contains('ssdt-bat.aml')) paths.add('ssdt-batc.aml');
+  return paths;
 }
 
 Set<String> removeCustomSsdtPrebuiltItems(

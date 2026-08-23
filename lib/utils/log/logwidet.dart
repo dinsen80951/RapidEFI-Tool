@@ -1,5 +1,5 @@
-//  logwidet.dart 
-//  Created by JeoJay127 
+//  logwidet.dart
+//  Created by JeoJay127
 //
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -27,8 +27,9 @@ class LogWidget extends StatefulWidget {
 
 class _LogWidgetState extends State<LogWidget> {
   final ScrollController _scrollController = ScrollController();
-  final ValueNotifier<List<String>> _logs = ValueNotifier([]);
+  final List<String> _logs = [];
   final List<StreamSubscription<String>> _subscriptions = [];
+  bool _scrollScheduled = false;
 
   @override
   void initState() {
@@ -46,28 +47,53 @@ class _LogWidgetState extends State<LogWidget> {
   }
 
   void _onNewLogLine(String line) {
-    final maxLines =
-        widget.config?.maxLines ??
-        Log.channels[Log.defaultChannel]!.config.maxLines;
+    if (!mounted) return;
 
-    final updated = List<String>.from(_logs.value);
-    if (line.contains('[CLEARED]')) {
-      updated.clear();
-    } else {
-      if (updated.length >= maxLines) updated.removeAt(0);
-      updated.add(line);
-    }
-    _logs.value = updated;
+    final maxLines = widget.config?.maxLines ??
+        Log.channels[Log.defaultChannel]?.config.maxLines ??
+        2000;
 
-    // 滚动到底部（节流可选）
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.linearToEaseOut,
-      );
+    setState(() {
+      if (line.contains('[CLEARED]')) {
+        _logs.clear();
+      } else {
+        _logs.add(line);
+      }
+      final excess = _logs.length - maxLines;
+      if (excess > 0) _logs.removeRange(0, excess);
     });
+
+    _scheduleScrollToBottom();
+  }
+
+  void _scheduleScrollToBottom() {
+    if (_scrollScheduled) return;
+    _scrollScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  void _scrollToBottom([double? previousMaxExtent]) {
+    if (!mounted || !_scrollController.hasClients) {
+      _scrollScheduled = false;
+      return;
+    }
+
+    final position = _scrollController.position;
+    final maxExtent = position.maxScrollExtent;
+    if ((position.pixels - maxExtent).abs() > 0.5) {
+      _scrollController.jumpTo(maxExtent);
+    }
+
+    final extentIsStable = previousMaxExtent != null &&
+        (previousMaxExtent - maxExtent).abs() <= 0.5;
+    if (extentIsStable && position.extentAfter <= 0.5) {
+      _scrollScheduled = false;
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _scrollToBottom(maxExtent),
+    );
   }
 
   @override
@@ -77,44 +103,38 @@ class _LogWidgetState extends State<LogWidget> {
     }
     _subscriptions.clear();
     _scrollController.dispose();
-    _logs.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<List<String>>(
-      valueListenable: _logs,
-      builder: (_, logs, __) {
-        return Container(
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      constraints: const BoxConstraints(
+        minHeight: 200,
+        minWidth: double.infinity,
+      ),
+      child: SelectionArea(
+        child: ListView.builder(
+          controller: _scrollController,
           padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          constraints: const BoxConstraints(
-            minHeight: 200,
-            minWidth: double.infinity,
-          ),
-          child: SingleChildScrollView(
-            controller: _scrollController,
-            child: SelectableText.rich(
-              TextSpan(
-                children: logs
-                    .map(
-                      (log) => LogTextFormatter.format(
-                        log,
-                        config: widget.config,
-                        channelColors: widget.channelColors,
-                        showChannelTag: widget.showChannelTag,
-                      ),
-                    )
-                    .toList(),
-              ),
+          itemCount: _logs.length,
+          itemBuilder: (context, index) => RichText(
+            text: LogTextFormatter.format(
+              _logs[index],
+              config: widget.config,
+              channelColors: widget.channelColors,
+              showChannelTag: widget.showChannelTag,
             ),
+            selectionRegistrar: SelectionContainer.maybeOf(context),
+            selectionColor: DefaultSelectionStyle.of(context).selectionColor ??
+                DefaultSelectionStyle.defaultColor,
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -136,16 +156,16 @@ class LogTextFormatter {
   }) {
     final channelName =
         RegExp(r'^\[([^\]]+)\]').firstMatch(logText)?.group(1) ??
-        Log.defaultChannel;
+            Log.defaultChannel;
 
     final channelColor =
         channelColors?[channelName] ?? _getChannelColor(channelName);
     final levelColor = _getLevelColor(logText);
 
-    final logConfig =
-        config ??
+    final logConfig = config ??
         Log.channels[channelName]?.config ??
-        Log.channels[Log.defaultChannel]!.config;
+        Log.channels[Log.defaultChannel]?.config ??
+        LogConfig();
 
     // 去掉 channel
     String processedText = logText.replaceFirst(RegExp(r'^\[[^\]]+\]\s*'), '');
@@ -172,7 +192,7 @@ class LogTextFormatter {
             ),
           ),
         TextSpan(
-          text: '$processedText\n',
+          text: processedText,
           style: TextStyle(fontSize: textSize, color: levelColor),
         ),
       ],

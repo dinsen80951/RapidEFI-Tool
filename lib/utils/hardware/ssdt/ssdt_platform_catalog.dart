@@ -29,6 +29,7 @@ class SsdtPlatformCatalog {
   ];
 
   static const _recommendedLaptopSupplement = [
+    ACPITable.ssdtBAT,
     ACPITable.ssdtLID,
     ACPITable.ssdtWakeScreen,
     ACPITable.ssdtLED,

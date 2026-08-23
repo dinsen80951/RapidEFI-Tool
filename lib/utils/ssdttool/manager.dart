@@ -117,6 +117,9 @@ class ACPIToolManager {
             getIgpu: context?.data?.$3,
             manualIGPUPath: context?.data?.$2,
           ),
+      ACPITable.ssdtBAT.name: (
+              {PatchContext? context, Map<String, dynamic>? action}) =>
+          ssdt.ssdtBAT(),
       ACPITable.ssdtXOSI.name: (
               {PatchContext? context, Map<String, dynamic>? action}) =>
           ssdt.ssdtXOSI(
@@ -274,13 +277,15 @@ class ACPIToolManager {
     if (executor != null) {
       final dependencySsdtName = _sleepHookActionSsdtNames[action.name];
       try {
-        Log('------------------------------------------ 开始定制 ${action.name} ------------------------------------------'); 
+        Log('------------------------------------------ 开始定制 ${action.name} ------------------------------------------');
         final ctx = context ?? PatchContext();
         ssdt.outputFolder = outputFolder ?? resultFolder;
         if (dependencySsdtName != null) {
           await _removeSsdtArtifacts(dependencySsdtName, outputFolder);
         }
+        await Log.yieldToUi();
         await executor(context: ctx, action: action);
+        await Log.yieldToUi();
       } catch (e) {
         onError?.call('执行失败: $action, 错误: $e');
       } finally {

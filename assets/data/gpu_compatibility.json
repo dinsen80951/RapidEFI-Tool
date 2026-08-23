@@ -359,6 +359,77 @@
           "vendor": "AMD",
           "vendorId": "1002"
         },
+        "nootrx": {
+          "avx2Limited": true,
+          "codename": "Navi RDNA 2",
+          "devices": {
+            "1002-73A2": {
+              "codename": "Navi 21",
+              "minDarwin": "20.0.0",
+              "name": ""
+            },
+            "1002-73A3": {
+              "codename": "Navi 21",
+              "minDarwin": "20.0.0",
+              "name": ""
+            },
+            "1002-73A5": {
+              "codename": "Navi 21",
+              "minDarwin": "20.0.0",
+              "name": ""
+            },
+            "1002-73AB": {
+              "codename": "Navi 21",
+              "minDarwin": "20.0.0",
+              "name": ""
+            },
+            "1002-73AF": {
+              "codename": "Navi 21",
+              "minDarwin": "20.0.0",
+              "name": ""
+            },
+            "1002-73BF": {
+              "codename": "Navi 21",
+              "minDarwin": "20.0.0",
+              "name": ""
+            },
+            "1002-73DF": {
+              "codename": "Navi 22",
+              "minDarwin": "21.0.0",
+              "name": ""
+            },
+            "1002-73E0": {
+              "codename": "Navi 23",
+              "minDarwin": "21.0.0",
+              "name": ""
+            },
+            "1002-73E1": {
+              "codename": "Navi 23",
+              "minDarwin": "21.0.0",
+              "name": ""
+            },
+            "1002-73E3": {
+              "codename": "Navi 23",
+              "minDarwin": "21.0.0",
+              "name": ""
+            },
+            "1002-73EF": {
+              "codename": "Navi 23",
+              "minDarwin": "21.0.0",
+              "name": ""
+            },
+            "1002-73FF": {
+              "codename": "Navi 23",
+              "minDarwin": "21.0.0",
+              "name": ""
+            }
+          },
+          "maxDarwin": "25.99.99",
+          "minDarwin": "21.0.0",
+          "supportDriver": "NootRX",
+          "vendor": "AMD",
+          "vendorId": "1002"
+        },
         "polaris": {
           "avx2Limited": true,
           "codename": "Polaris",

@@ -203,6 +203,46 @@ class SMBIOSCompatibility {
     return supported.first;
   }
 
+  /// 为自动配置选择与目标系统最贴近的兼容机型。
+  ///
+  /// 平台候选中可能同时包含原生机型和用于新系统的替代机型。优先选择
+  /// 支持目标系统、且官方支持上限最接近目标系统的机型，避免旧平台仅因
+  /// 候选列表首项较新而一律落到最新 SMBIOS。
+  static PlatformInfoGeneric? recommendClosestForDarwinMajor(
+    List<PlatformInfoGeneric> candidates,
+    int darwinMajor,
+  ) {
+    final supported = candidates
+        .where((candidate) => supportsDarwinMajor(candidate, darwinMajor))
+        .toList();
+    if (supported.isEmpty) {
+      return recommendForDarwinMajor(candidates, darwinMajor);
+    }
+
+    var recommended = supported.first;
+    var recommendedDistance = _supportUpperDistance(
+      recommended,
+      darwinMajor,
+    );
+    for (final candidate in supported.skip(1)) {
+      final distance = _supportUpperDistance(candidate, darwinMajor);
+      if (distance < recommendedDistance) {
+        recommended = candidate;
+        recommendedDistance = distance;
+      }
+    }
+    return recommended;
+  }
+
+  static int _supportUpperDistance(
+    PlatformInfoGeneric smbios,
+    int darwinMajor,
+  ) {
+    final range = supportRange(smbios);
+    if (range == null) return 1 << 20;
+    return (range.max - darwinMajor).abs();
+  }
+
   static int recommendDarwinMajorForSMBIOS(
     PlatformInfoGeneric smbios,
     int currentDarwinMajor,

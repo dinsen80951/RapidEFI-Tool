@@ -21,8 +21,11 @@ class IgpuAdvance extends StatefulWidget {
 }
 
 class _IgpuAdvanceState extends State<IgpuAdvance> {
+  static const _categoryDvmt = 'DVMT';
+  static const _categoryMemory = '显存';
   static const _categoryOrder = [
-    igpuCategoryMemory,
+    _categoryDvmt,
+    _categoryMemory,
     igpuCategoryHaswell,
     igpuCategoryIvyBridge,
     igpuCategorySandyBridge,
@@ -106,7 +109,13 @@ class _IgpuAdvanceState extends State<IgpuAdvance> {
   ) {
     final grouped = <String, List<IgpuDevicePropertyOption>>{};
     for (final option in options) {
-      grouped.putIfAbsent(option.category, () => []).add(option);
+      var category = option.category;
+      if (category == igpuCategoryMemory) {
+        category = option.exclusiveGroup == 'unifiedmem'
+            ? _categoryMemory
+            : _categoryDvmt;
+      }
+      grouped.putIfAbsent(category, () => []).add(option);
     }
     return grouped;
   }

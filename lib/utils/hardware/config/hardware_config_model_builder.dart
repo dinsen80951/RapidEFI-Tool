@@ -13,11 +13,13 @@ import 'package:rapidefi/utils/config/presets/sections/config_kernel.dart';
 import 'package:rapidefi/utils/config/presets/platform_profiles/platform_configs.dart';
 import 'package:rapidefi/utils/config/presets/sections/config_nvram.dart';
 import 'package:rapidefi/utils/config/services/apple_alc_resolver.dart';
+import 'package:rapidefi/utils/config/support/intel_igpu_memory_policy.dart';
 import 'package:rapidefi/utils/config/support/surface_support.dart';
 import 'package:rapidefi/utils/config/support/wifi_oclp_support.dart';
 import 'package:rapidefi/utils/hardware/analysis/gpu_compatibility_data.dart';
 import 'package:rapidefi/utils/hardware/analysis/hardware_analysis.dart';
 import 'package:rapidefi/utils/hardware/config/hardware_config_build_context.dart';
+import 'package:rapidefi/utils/hardware/config/hardware_gpu_topology.dart';
 import 'package:rapidefi/utils/hardware/config/hardware_config_kext_resolver.dart';
 import 'package:rapidefi/utils/hardware/config/hardware_config_options.dart';
 import 'package:rapidefi/utils/hardware/config/hardware_platform_resolver.dart';
@@ -228,7 +230,9 @@ class HardwareConfigModelBuilder {
       if (!_isDiscreteGpu(entry.key, gpu)) continue;
 
       final ruleText = _gpuRuleText(entry.key, gpu).toLowerCase();
-      final name = _gpuDisplayNameForRules(entry.key, gpu).toLowerCase();
+      final record = GpuCompatibilityData.findSync(
+        safeStr(gpu['Device ID']),
+      );
 
       if (ruleText.contains('gcn')) {
         BootArgsAccessor.add(model, ConfigNvram.radpg15.arg);
@@ -246,7 +250,9 @@ class HardwareConfigModelBuilder {
         );
       }
 
-      if (name.contains('rx 6700')) {
+      if (record != null &&
+          record.requiresNootRx &&
+          record.supportsDarwinMajor(model.darwinMajorVersion)) {
         _addKexts(model, [ConfigKernel.NootRX]);
       }
     }
@@ -445,6 +451,7 @@ class HardwareConfigModelBuilder {
   ) {
     if (!SurfaceSupport.matchesText(_motherboardSearchText(context))) return;
     SurfaceSupport.apply(model);
+    IntelIgpuMemoryPolicy.applySurfaceDefault(model);
   }
 
   void _applyPersonalizedOptions(
@@ -499,37 +506,11 @@ class HardwareConfigModelBuilder {
     HardwareConfigBuildContext context,
   ) {
     return hardwareDevices(context.rawInfoMap['GPU']).where((entry) {
-      return _isIntegratedGpu(entry.key, safeMap(entry.value));
+      return HardwareGpuTopology.isIntegrated(
+        entry.key,
+        safeMap(entry.value),
+      );
     });
-  }
-
-  bool _isIntegratedGpu(String name, Map<String, dynamic> gpu) {
-    final type = safeStr(gpu['Device Type']).toLowerCase();
-    if (type.contains('integrated') || type.contains('核心')) return true;
-    if (type.contains('discrete') || type.contains('独立')) return false;
-
-    final text = [
-      name,
-      safeStr(gpu['Name']),
-      safeStr(gpu['DeviceDesc']),
-      safeStr(gpu['Device Description']),
-      safeStr(gpu['Description']),
-      safeStr(gpu['Manufacturer']),
-    ].join(' ').toLowerCase();
-
-    final isIntelIgpu = text.contains('intel') &&
-        (text.contains('hd graphics') ||
-            text.contains('uhd graphics') ||
-            text.contains('iris') ||
-            text.contains('intel graphics') ||
-            text.contains('intel(r) graphics'));
-    final isAmdApu = text.contains('amd') &&
-        (text.contains('radeon vega') ||
-            text.contains('radeon rx vega') ||
-            text.contains('radeon(tm) graphics') ||
-            text.contains('radeon graphics'));
-
-    return isIntelIgpu || isAmdApu;
   }
 
   List<IgpuPropertyModel> _selectIntegratedIntelGpuMode(
@@ -830,46 +811,7 @@ class HardwareConfigModelBuilder {
   }
 
   bool _isDiscreteGpu(String name, Map<String, dynamic> gpu) {
-    final deviceId = GpuCompatibilityData.normalizeFullDeviceId(
-      safeStr(gpu['Device ID']),
-    ).toUpperCase();
-    final type = safeStr(gpu['Device Type']).toLowerCase();
-    if (type == 'integrated' ||
-        type.contains('integrated') ||
-        type.contains('核显') ||
-        type.contains('核心')) {
-      return false;
-    }
-    if (type == 'discrete' || type.contains('独立')) return true;
-
-    final text = [
-      name,
-      safeStr(gpu['Name']),
-      safeStr(gpu['DeviceDesc']),
-      safeStr(gpu['Device Description']),
-      safeStr(gpu['Description']),
-      safeStr(gpu['Manufacturer']),
-    ].join(' ').toLowerCase();
-
-    if (deviceId.startsWith('1002-')) {
-      final isAmdApu = HardwareDeviceData.isNootedRedSupportedDeviceId(
-            deviceId,
-          ) ||
-          text.contains('radeon graphics') ||
-          text.contains('radeon(tm) graphics') ||
-          text.contains('radeon vega');
-      return !isAmdApu;
-    }
-    if (deviceId.startsWith('10DE-')) return true;
-
-    return text.contains('radeon rx') ||
-        text.contains('radeon hd') ||
-        text.contains('radeon r9') ||
-        text.contains('radeon r7') ||
-        text.contains('radeon pro') ||
-        text.contains('firepro') ||
-        text.contains('geforce') ||
-        text.contains('quadro');
+    return HardwareGpuTopology.isDiscrete(name, gpu);
   }
 
   bool _isNaviOrPolarisCodename(String codename) {
