@@ -45,19 +45,15 @@ class WinSsdtBuildService {
     Log('');
     Log(
       '待定制SSDT列表： '
-      '[${_selectedAmlNames(
-        selection,
-        targetPlatformType,
-        blockPlans,
-        identityOverridePlans,
-      ).join(', ')}]',
+      '[${_selectedAmlNames(selection, targetPlatformType, blockPlans, identityOverridePlans).join(', ')}]',
     );
     Log('');
 
     Directory? workDir;
     try {
-      final ssdtWorkDir =
-          await Directory.systemTemp.createTemp('rapidefi_ssdt_');
+      final ssdtWorkDir = await Directory.systemTemp.createTemp(
+        'rapidefi_ssdt_',
+      );
       workDir = ssdtWorkDir;
       final manager = ACPIToolManager(
         acpiConfig: AcpiConfig(
@@ -127,19 +123,19 @@ class WinSsdtBuildService {
 
       await manager.copyPatchOutputToResults(outputFolder);
 
-      final resultsDir =
-          Directory(path.join(ssdtWorkDir.path, manager.resultFolder));
-      final hasPatchPlist =
-          File(path.join(resultsDir.path, 'patches_OC.plist')).existsSync();
-      final hasAml = resultsDir.existsSync() &&
-          resultsDir
-              .listSync()
-              .whereType<File>()
-              .any((file) => file.path.toLowerCase().endsWith('.aml'));
+      final resultsDir = Directory(
+        path.join(ssdtWorkDir.path, manager.resultFolder),
+      );
+      final hasPatchPlist = File(
+        path.join(resultsDir.path, 'patches_OC.plist'),
+      ).existsSync();
+      final hasAml =
+          resultsDir.existsSync() &&
+          resultsDir.listSync().whereType<File>().any(
+            (file) => file.path.toLowerCase().endsWith('.aml'),
+          );
       if (!hasPatchPlist || !hasAml) {
-        return _useOriginalFallback(
-          '定制 SSDT 结果不完整',
-        );
+        return _useOriginalFallback('定制 SSDT 结果不完整');
       }
 
       await manager.mergePlist(
@@ -153,9 +149,7 @@ class WinSsdtBuildService {
     } catch (error, stackTrace) {
       Log.error('定制 SSDT 失败: $error');
       Log.error(stackTrace.toString());
-      return _useOriginalFallback(
-        '定制 SSDT 发生异常',
-      );
+      return _useOriginalFallback('定制 SSDT 发生异常');
     } finally {
       if (workDir != null && await workDir.exists()) {
         try {
@@ -194,8 +188,9 @@ class WinSsdtBuildService {
     void addName(String name) {
       final trimmed = name.trim();
       if (trimmed.isEmpty) return;
-      final amlName =
-          trimmed.toLowerCase().endsWith('.aml') ? trimmed : '$trimmed.aml';
+      final amlName = trimmed.toLowerCase().endsWith('.aml')
+          ? trimmed
+          : '$trimmed.aml';
       if (seen.add(amlName.toLowerCase())) names.add(amlName);
     }
 
@@ -207,9 +202,7 @@ class WinSsdtBuildService {
       addName('${target.amlName}.aml');
     }
 
-    final methods = const AcpiDeviceBlockPlanner().disableMethods(
-      platformType,
-    );
+    final methods = const AcpiDeviceBlockPlanner().disableMethods(platformType);
     for (final target in blockPlans) {
       for (final method in methods) {
         addName('${target.amlName(method)}.aml');
@@ -266,9 +259,7 @@ class WinSsdtBuildService {
   }) async {
     if (targets.isEmpty) return;
 
-    final methods = const AcpiDeviceBlockPlanner().disableMethods(
-      platformType,
-    );
+    final methods = const AcpiDeviceBlockPlanner().disableMethods(platformType);
     for (final target in targets) {
       var generated = false;
       for (final method in methods) {
@@ -346,15 +337,15 @@ class _GpuIdentityOverridePlan {
   String get amlName => 'SSDT-$deviceId-GPU-SPOOF';
 
   Map<String, dynamic> get action => {
-        'name': ACPITable.ssdtGPUSPOOF.name,
-        'remark': '$name 显卡设备ID仿冒',
-        'extra': {
-          'acpiPath': acpiPath,
-          'deviceId': deviceId,
-          'fakeModel': fakeModel,
-        },
-        'prebuilt': false,
-      };
+    'name': ACPITable.ssdtGPUSPOOF.name,
+    'remark': '$name 显卡设备ID仿冒',
+    'extra': {
+      'acpiPath': acpiPath,
+      'deviceId': deviceId,
+      'fakeModel': fakeModel,
+    },
+    'prebuilt': false,
+  };
 }
 
 class _GpuIdentityOverridePlanner {
@@ -443,7 +434,8 @@ class _GpuIdentityOverridePlanner {
   }
 
   String _normalizeDeviceId(Object? value) {
-    return GpuCompatibilityData.normalizeFullDeviceId(safeStr(value))
-        .toUpperCase();
+    return GpuCompatibilityData.normalizeFullDeviceId(
+      safeStr(value),
+    ).toUpperCase();
   }
 }

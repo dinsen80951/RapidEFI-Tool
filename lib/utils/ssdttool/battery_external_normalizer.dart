@@ -83,7 +83,8 @@ class BatteryExternalNormalizer {
     final candidates = <String, ({String path, Set<String> types})>{};
     final lines = externals.toList()
       ..sort(
-          (left, right) => left.toLowerCase().compareTo(right.toLowerCase()));
+        (left, right) => left.toLowerCase().compareTo(right.toLowerCase()),
+      );
 
     for (final line in lines) {
       final match = declaration.firstMatch(line);
@@ -98,7 +99,8 @@ class BatteryExternalNormalizer {
       final type = canonicalObjectType(match.group(2) ?? '');
       final old = candidates[key];
       candidates[key] = (
-        path: old == null ||
+        path:
+            old == null ||
                 path.toLowerCase().compareTo(old.path.toLowerCase()) < 0
             ? path
             : old.path,

@@ -108,9 +108,14 @@ class _LogWidgetState extends State<LogWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final borderColor = colorScheme.onSurface.withValues(
+      alpha: colorScheme.brightness == Brightness.dark ? 0.16 : 0.12,
+    );
+
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey),
+        border: Border.all(color: borderColor, width: 0.5),
         borderRadius: BorderRadius.circular(6),
       ),
       constraints: const BoxConstraints(
@@ -128,6 +133,7 @@ class _LogWidgetState extends State<LogWidget> {
               config: widget.config,
               channelColors: widget.channelColors,
               showChannelTag: widget.showChannelTag,
+              defaultTextColor: colorScheme.onSurface,
             ),
             selectionRegistrar: SelectionContainer.maybeOf(context),
             selectionColor: DefaultSelectionStyle.of(context).selectionColor ??
@@ -153,6 +159,7 @@ class LogTextFormatter {
     Map<String, Color>? channelColors,
     bool showChannelTag = false,
     double textSize = 11,
+    Color? defaultTextColor,
   }) {
     final channelName =
         RegExp(r'^\[([^\]]+)\]').firstMatch(logText)?.group(1) ??
@@ -193,7 +200,10 @@ class LogTextFormatter {
           ),
         TextSpan(
           text: processedText,
-          style: TextStyle(fontSize: textSize, color: levelColor),
+          style: TextStyle(
+            fontSize: textSize,
+            color: levelColor ?? defaultTextColor,
+          ),
         ),
       ],
     );

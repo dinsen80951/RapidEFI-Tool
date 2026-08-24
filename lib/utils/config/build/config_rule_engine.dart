@@ -56,7 +56,7 @@ class ConfigRuleEngine {
         '$macOSVersionName-EFI-${configService.ocVersion}-${configService.plantformInfo}';
     if (configService.configModelMode == ConfigModelMode.auto) {
       efiName =
-          'AutoEFI-${configService.ocVersion}-${configService.plantformInfo}';
+          'AutoEFI-$macOSVersionName-${configService.ocVersion}-${configService.plantformInfo}';
     }
     if (options.efiNameOverride != null &&
         options.efiNameOverride!.trim().isNotEmpty) {

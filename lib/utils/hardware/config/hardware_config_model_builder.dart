@@ -97,6 +97,10 @@ class HardwareConfigModelBuilder {
           id: 'discrete_gpu',
           apply: _applyDiscreteGpuConfiguration,
         ),
+        HardwareConfigStage(
+          id: 'gpu_boot_args_cleanup',
+          apply: _applyGpuBootArgsCleanup,
+        ),
         HardwareConfigStage(id: 'audio', apply: _applyAudioConfiguration),
         HardwareConfigStage(
           id: 'ethernet',
@@ -256,6 +260,18 @@ class HardwareConfigModelBuilder {
         _addKexts(model, [ConfigKernel.NootRX]);
       }
     }
+  }
+
+  void _applyGpuBootArgsCleanup(
+    HardwareConfigBuildContext context,
+    ConfigModel model,
+  ) {
+    if (model.platformType != PlatformType.laptop) return;
+    if (!HardwareGpuTopology.hasOnlyIntegratedGraphics(context.rawInfoMap)) {
+      return;
+    }
+
+    BootArgsAccessor.remove(model, ConfigNvram.wegnoegpu.arg);
   }
 
   void _applyAudioConfiguration(

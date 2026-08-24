@@ -10,6 +10,7 @@ import 'package:rapidefi/utils/config/build/efi_build_options.dart';
 import 'package:rapidefi/utils/config/build/efi_build_pipeline.dart';
 import 'package:rapidefi/utils/config/config_model.dart';
 import 'package:rapidefi/utils/config/models/enums/config_enums.dart';
+import 'package:rapidefi/utils/config/presets/sections/config_kernel.dart';
 import 'package:rapidefi/utils/config/services/config_service.dart';
 import 'package:rapidefi/utils/config/services/config_session.dart';
 import 'package:rapidefi/utils/file_util.dart';
@@ -552,6 +553,17 @@ class HardwarePageController extends ChangeNotifier {
       final customSsdtManagedPaths = resolvedSsdtSelection == null
           ? const <String>{}
           : customSsdtManagedAmlPaths(resolvedSsdtSelection);
+      if (configModel.platformType == PlatformType.laptop) {
+        final hasAls0 = resolvedSsdtSelection?.items.any(
+              (item) => item.name == ACPITable.ssdtALS0.name,
+            ) ??
+            false;
+        if (hasAls0) {
+          KextAccessor.addKexts(configModel, [ConfigKernel.SMCLightSensor]);
+        } else {
+          KextAccessor.removeKexts(configModel, [ConfigKernel.SMCLightSensor]);
+        }
+      }
       if (resolvedSsdtSelection != null) {
         removeCustomSsdtPrebuiltItems(configModel, resolvedSsdtSelection);
         progress.addLine(

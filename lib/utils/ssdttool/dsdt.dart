@@ -22,11 +22,7 @@ enum AcpiDumpFailureType {
 }
 
 class AcpiDumpException implements Exception {
-  AcpiDumpException(
-    this.type,
-    this.message, {
-    this.detail = '',
-  });
+  AcpiDumpException(this.type, this.message, {this.detail = ''});
 
   final AcpiDumpFailureType type;
   final String message;
@@ -76,7 +72,7 @@ class DSDT {
   );
 
   DSDT({required this.useLocaliAsl, this.useLeagcyiAsl = false})
-      : acpiTool = ACPITool();
+    : acpiTool = ACPITool();
 
   /// 获取表签名
   /// [tablePath]: 表路径
@@ -406,12 +402,18 @@ class DSDT {
   Future<(Map, List)> loadTable(
     String tablePath, {
     List<String> exclude = const [],
+    List<String> externalTables = const [],
+    bool logProgress = true,
   }) async {
     String cwd = Directory.current.path;
     Directory? temp;
     Map<String, Map<String, dynamic>> targetFiles = {};
     final excludeSet = exclude.map((e) => e.toLowerCase()).toSet();
     List<String> failed = [];
+    void progress(String message) {
+      if (logProgress) Log(message);
+    }
+
     try {
       List<String> validFiles = [];
 
@@ -423,7 +425,7 @@ class DSDT {
             .where((item) {
               final name = path.basename(item.path);
               if (excludeSet.contains(name.toLowerCase())) {
-                Log("跳过: $name ,先前已经正确反编译!");
+                progress("跳过: $name ,先前已经正确反编译!");
                 return false;
               }
               return tableIsValid(tablePath, tableName: name);
@@ -460,6 +462,20 @@ class DSDT {
 
       for (var file in validFiles) {
         await File(file).copy(path.join(temp.path, path.basename(file)));
+      }
+      final externalFileNames = <String>[];
+      for (final externalTable in externalTables) {
+        final externalFile = File(externalTable);
+        if (!externalFile.existsSync()) {
+          Log.warning("外部 ACPI 表不存在，已跳过: $externalTable");
+          continue;
+        }
+        final externalName = path.basename(externalTable);
+        final externalTarget = path.join(temp.path, externalName);
+        if (!File(externalTarget).existsSync()) {
+          await externalFile.copy(externalTarget);
+        }
+        externalFileNames.add(externalName);
       }
 
       // 处理有效文件
@@ -513,22 +529,53 @@ class DSDT {
 
       // 反编译 DSDT 和 SSDT 表
       if (dsdtOrSsdt.isNotEmpty) {
-        if (dsdtOrSsdt.length == 1) {
-          Log('正在反编译 ${dsdtOrSsdt.first} 文件...');
+        if (externalFileNames.isNotEmpty) {
+          progress(
+            '正在使用 ${externalFileNames.join(', ')} 作为外部命名空间联合反编译 '
+            '${dsdtOrSsdt.map(path.basename).join(', ')} ...',
+          );
+        } else if (dsdtOrSsdt.length == 1) {
+          progress('正在反编译 ${dsdtOrSsdt.first} 文件...');
         } else {
           if (excludeSet.contains('dsdt.aml')) {
-            Log('正在批量反编译 SSDT.aml 文件...');
+            progress('正在批量反编译 SSDT.aml 文件...');
           } else {
-            Log('正在批量反编译 DSDT.aml 和 SSDT.aml 文件...');
+            progress('正在批量反编译 DSDT.aml 和 SSDT.aml 文件...');
           }
         }
         List<String> failedTemp = [];
-        List<String> args = [acpiTool.iasl, "-da", "-dl", "-l", ...dsdtOrSsdt];
+        List<String> args = externalFileNames.isNotEmpty
+            ? [
+                acpiTool.iasl,
+                "-e",
+                ...externalFileNames,
+                "-dl",
+                "-l",
+                ...dsdtOrSsdt,
+              ]
+            : [acpiTool.iasl, "-da", "-dl", "-l", ...dsdtOrSsdt];
         var result = await r.run([
           {"args": args},
         ]);
 
-        if (result.isNotEmpty && result.last != '0') {
+        if (result.isNotEmpty &&
+            result.last != '0' &&
+            externalFileNames.isNotEmpty) {
+          // iasl can leave a partial DSL behind after external namespace
+          // resolution fails. Never treat that partial output as a table.
+          for (final table in dsdtOrSsdt) {
+            final output = File(
+              path.join(
+                temp.path,
+                targetFiles[path.basename(table)]!['disassembledName'],
+              ),
+            );
+            if (output.existsSync()) output.deleteSync();
+            if (logProgress) {
+              Log.warning('=> ${path.basename(table)} 与外部 ACPI 表联合反编译失败！');
+            }
+          }
+        } else if (result.isNotEmpty && result.last != '0') {
           // 如果第一次反编译失败，重试一次，不带 -da 参数
           args = [acpiTool.iasl, "-dl", "-l", ...dsdtOrSsdt];
           final res = await r.run([
@@ -543,19 +590,19 @@ class DSDT {
               )) {
                 Log.warning('=> ${path.basename(e)} 反编译失败！');
               } else {
-                Log('=> ${path.basename(e)} 反编译成功！');
+                progress('=> ${path.basename(e)} 反编译成功！');
               }
             }
-            Log('');
+            progress('');
           } else {
             for (var e in dsdtOrSsdt) {
-              Log('=> ${path.basename(e)} 反编译成功！');
+              progress('=> ${path.basename(e)} 反编译成功！');
             }
-            Log('');
+            progress('');
           }
         } else {
           for (var e in dsdtOrSsdt) {
-            Log('=> ${path.basename(e)} 反编译成功！');
+            progress('=> ${path.basename(e)} 反编译成功！');
           }
         }
 
@@ -571,31 +618,35 @@ class DSDT {
 
         // 单独反编译失败的.aml 文件
         if (failedTemp.isNotEmpty) {
-          Log('正在单独反编译失败的.aml 文件...');
-          for (var e in failedTemp) {
-            args = [acpiTool.iasl, "-dl", "-l", e];
-            final res = await r.run([
-              {"args": args},
-            ]);
-            if (res.isNotEmpty && res.last == '0') {
-              Log('=> $e 反编译成功！');
-            } else {
-              Log.error('=> $e 反编译失败！');
+          if (externalFileNames.isNotEmpty) {
+            failed.addAll(failedTemp);
+          } else {
+            progress('正在单独反编译失败的.aml 文件...');
+            for (var e in failedTemp) {
+              args = [acpiTool.iasl, "-dl", "-l", e];
+              final res = await r.run([
+                {"args": args},
+              ]);
+              if (res.isNotEmpty && res.last == '0') {
+                progress('=> $e 反编译成功！');
+              } else {
+                Log.error('=> $e 反编译失败！');
+              }
+              if (!exists(
+                temp.path,
+                targetFiles[path.basename(e)]!['disassembledName'],
+              )) {
+                failed.add(e);
+              }
             }
-            if (!exists(
-              temp.path,
-              targetFiles[path.basename(e)]!['disassembledName'],
-            )) {
-              failed.add(e);
-            }
+            progress('');
           }
-          Log('');
         }
       }
 
       // 反编译其他.aml文件 (例如 DMAR, APIC)
       if (otherTables.isNotEmpty) {
-        Log('正在反编译其他.aml文件...');
+        progress('正在反编译其他.aml文件...');
         List<String> args = [acpiTool.iasl, "-dl", "-l", ...otherTables];
         final res = await r.run([
           {"args": args},
@@ -603,7 +654,7 @@ class DSDT {
 
         if (res.last == '0') {
           for (var e in otherTables) {
-            Log('=>  ${path.basename(e)} 反编译成功！');
+            progress('=>  ${path.basename(e)} 反编译成功！');
           }
         }
         // 获取反编译名称失败的列表
@@ -617,7 +668,9 @@ class DSDT {
         }
       }
 
-      if (failed.length == targetFiles.length && exclude.isEmpty) {
+      if (logProgress &&
+          failed.length == targetFiles.length &&
+          exclude.isEmpty) {
         Log.error("反编译失败: ${failed.toList()}");
       }
 
@@ -640,8 +693,10 @@ class DSDT {
         // 删除文件开头的编译器信息
         if (targetFiles[file]!["table"]!.startsWith("/*")) {
           final contentParts = targetFiles[file]!["table"]!.split("*/");
-          targetFiles[file]!["table"] =
-              contentParts.sublist(1).join("*/").trim();
+          targetFiles[file]!["table"] = contentParts
+              .sublist(1)
+              .join("*/")
+              .trim();
         }
 
         // 检查 "Table Header:" 或 "Raw Table Data: Length"，并去除这些部分后的内容
@@ -802,14 +857,7 @@ class DSDT {
 
       final result = await r.run([
         {
-          'args': [
-            acpiTool.iasl,
-            '-e',
-            ...references,
-            '-dl',
-            '-l',
-            targetFile,
-          ],
+          'args': [acpiTool.iasl, '-e', ...references, '-dl', '-l', targetFile],
           'workingDirectory': temporary.path,
         },
       ]);
@@ -844,10 +892,10 @@ class DSDT {
     final fileName = Platform.isWindows
         ? 'acpidump.exe'
         : Platform.isLinux
-            ? 'acpidump'
-            : Platform.isMacOS
-                ? 'patchmatic'
-                : null;
+        ? 'acpidump'
+        : Platform.isMacOS
+        ? 'patchmatic'
+        : null;
 
     if (fileName == null) return null;
     return path.join(dir, fileName);
@@ -899,10 +947,7 @@ class DSDT {
     }
     final exePath = await _getDumpToolPath(useLocaliAsl: useLocaliAsl);
     if (exePath == null || !File(exePath).existsSync()) {
-      return fail(
-        AcpiDumpFailureType.toolMissing,
-        "ACPI 导出工具未准备就绪",
-      );
+      return fail(AcpiDumpFailureType.toolMissing, "ACPI 导出工具未准备就绪");
     }
 
     Log("正在导出 ACPI 表...");
@@ -921,13 +966,10 @@ class DSDT {
 
     Future<ProcessResult> runDump({String? sudoPassword}) async {
       if (Platform.isMacOS) {
-        return await Process.run(
-            exePath,
-            [
-              '-extractall',
-              '-raw',
-            ],
-            workingDirectory: outputPath);
+        return await Process.run(exePath, [
+          '-extractall',
+          '-raw',
+        ], workingDirectory: outputPath);
       } else if (Platform.isLinux && sudoPassword != null) {
         final process = await Process.start(
           'sudo',
@@ -939,10 +981,12 @@ class DSDT {
         await process.stdin.flush();
         await process.stdin.close();
 
-        final stdoutData =
-            await process.stdout.transform(SystemEncoding().decoder).join();
-        final stderrData =
-            await process.stderr.transform(SystemEncoding().decoder).join();
+        final stdoutData = await process.stdout
+            .transform(SystemEncoding().decoder)
+            .join();
+        final stderrData = await process.stderr
+            .transform(SystemEncoding().decoder)
+            .join();
         final exitCode = await process.exitCode;
 
         return ProcessResult(process.pid, exitCode, stdoutData, stderrData);
@@ -956,16 +1000,10 @@ class DSDT {
       Log("等待输入 sudo 密码授权...");
       sudoPassword = await onRequestSudoPassword();
       if (sudoPassword == null) {
-        return fail(
-          AcpiDumpFailureType.authorizationCancelled,
-          "已取消管理员授权",
-        );
+        return fail(AcpiDumpFailureType.authorizationCancelled, "已取消管理员授权");
       }
       if (sudoPassword.trim().isEmpty) {
-        return fail(
-          AcpiDumpFailureType.passwordRequired,
-          "未输入管理员密码",
-        );
+        return fail(AcpiDumpFailureType.passwordRequired, "未输入管理员密码");
       }
     }
     final result = await runDump(sudoPassword: sudoPassword);
@@ -988,10 +1026,10 @@ class DSDT {
     }
 
     bool hasTable = Directory(outputPath).listSync().any(
-          (file) =>
-              file.path.toLowerCase().endsWith(".aml") ||
-              file.path.toLowerCase().endsWith(".dat"),
-        );
+      (file) =>
+          file.path.toLowerCase().endsWith(".aml") ||
+          file.path.toLowerCase().endsWith(".dat"),
+    );
     if (!hasTable) {
       return fail(
         AcpiDumpFailureType.emptyResult,
@@ -1003,14 +1041,11 @@ class DSDT {
       outputPath,
     ).listSync().any((file) => file.path.toLowerCase().contains("dsdt."))) {
       Log.warning("=> 未找到 DSDT，正在按签名导出…");
-      final dsdtResult = await Process.run(
-          exePath,
-          [
-            '-b',
-            '-n',
-            'DSDT',
-          ],
-          workingDirectory: outputPath);
+      final dsdtResult = await Process.run(exePath, [
+        '-b',
+        '-n',
+        'DSDT',
+      ], workingDirectory: outputPath);
       if (dsdtResult.exitCode != 0) {
         return fail(
           AcpiDumpFailureType.processFailed,
@@ -1348,9 +1383,11 @@ class DSDT {
       final foundPath = match.group(1)!.trim();
       final target = scopePath.trim();
       final targetWithSlash = target.startsWith(r'\') ? target : r'\' + target;
-      final targetWithoutSlash =
-          target.startsWith(r'\') ? target.substring(1) : target;
-      var isMatch = foundPath.toLowerCase() == targetWithSlash.toLowerCase() ||
+      final targetWithoutSlash = target.startsWith(r'\')
+          ? target.substring(1)
+          : target;
+      var isMatch =
+          foundPath.toLowerCase() == targetWithSlash.toLowerCase() ||
           foundPath.toLowerCase() == targetWithoutSlash.toLowerCase();
 
       if (!scopePath.contains('.')) {
@@ -1833,8 +1870,11 @@ class DSDT {
       String flag = match.group(3)!.trim();
 
       // 最后一级方法名，例如 _PTS
-      String methodName =
-          fullName.split(".").last.replaceAll("\\", "").toUpperCase();
+      String methodName = fullName
+          .split(".")
+          .last
+          .replaceAll("\\", "")
+          .toUpperCase();
 
       // 不匹配跳过
       if (methodName != obj) continue;

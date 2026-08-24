@@ -140,7 +140,6 @@ class _EfiBuildProgressDialogState extends State<EfiBuildProgressDialog> {
                       decoration: BoxDecoration(
                         color: logBackground,
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: colorScheme.outlineVariant),
                       ),
                       child:
                           LogWidget(showChannelTag: false, allChannel: true)),

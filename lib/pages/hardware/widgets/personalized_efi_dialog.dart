@@ -534,7 +534,6 @@ class _PersonalizedEfiDialogState extends State<PersonalizedEfiDialog> {
             snippet: _onlyIntegratedGraphics
                 ? '当前识别为仅核显平台。仅核显通常不需要使用 npci 参数。只有在启动卡在 ACPI Configuration Begin，或确认存在 PCI 资源分配错误时再手动尝试。若 BIOS 已开启 Above 4G Decoding，请勿同时添加 npci 参数。'
                 : 'npci=0x2000 主要用于 BIOS 没有 Above 4G Decoding 选项或该选项关闭，并且启动时确实发生 PCI 资源分配问题的情况，常见于部分老旧工作站、服务器、AMD 平台或带多块独显的配置。优先在 BIOS 中开启 Above 4G Decoding；BIOS 选项与 npci 参数二选一，不要同时启用。没有相关启动故障时通常不需要添加。',
-            initiallyExpanded: true,
           ),
         ],
       ),
