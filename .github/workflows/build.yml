@@ -27,6 +27,7 @@ on:
 
 env:
   APP_NAME: RapidEFI
+  FLUTTER_VERSION: '3.41.9'
 
 # 同一 ref 的旧构建自动取消（节省 runner 资源）
 concurrency:
@@ -200,6 +201,7 @@ jobs:
         if: "!matrix.flutter_manual"
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
           architecture: ${{ matrix.flutter_sdk_arch }}
@@ -212,21 +214,18 @@ jobs:
         run: |
           BASE="https://storage.googleapis.com/flutter_infra_release/"
           JSON=$(curl -fsSL "${BASE}releases/releases_linux.json")
+          VER="${{ env.FLUTTER_VERSION }}"
 
           # 优先从 JSON archive 字段获取 arm64 路径（最可靠，不用猜文件名格式）
-          ARCHIVE=$(echo "$JSON" | jq -r '
-            .current_release.stable as $h |
+          ARCHIVE=$(echo "$JSON" | jq -r --arg ver "$VER" '
             .releases[] |
-            select(.hash == $h) |
+            select(.version == $ver) |
             select(.archive | test("arm64"; "i")) |
             .archive
           ' | head -1)
 
           # 回退：版本号拼 URL
           if [ -z "$ARCHIVE" ]; then
-            VER=$(echo "$JSON" | jq -r \
-              '.current_release.stable as $h | .releases[] | select(.hash == $h) | .version' \
-              | head -1)
             ARCHIVE="releases/stable/linux/flutter_linux_arm64_${VER}-stable.tar.xz"
           fi
 

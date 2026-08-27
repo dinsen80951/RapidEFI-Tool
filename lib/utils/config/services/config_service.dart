@@ -29,14 +29,14 @@ import 'package:rapidefi/utils/config/models/enums/config_enums.dart';
 import 'package:rapidefi/utils/file_util.dart';
 
 class ConfigService {
-  
   ConfigService._() {
     _init();
   }
 
   Future<void> _init() async {
     if (ocVersion.isEmpty) {
-      final cachedOCVersion = SpUtil.getString(Constant.openCoreVersionKey)??"";
+      final cachedOCVersion =
+          SpUtil.getString(Constant.openCoreVersionKey) ?? "";
       ocVersion = cachedOCVersion.isNotEmpty
           ? 'OpenCore-$cachedOCVersion'
           : await FileUtils.getOCVerion(addOpenCoreHeader: true);
@@ -71,35 +71,6 @@ class ConfigService {
     return _platformInfoCache[key] ?? const <PlatformEntity>[];
   }
 
-  Future<void> preloadAllPlatformInfos() async {
-    final currentCpuType = cpuType;
-    final currentPlatformType = platformType;
-
-    final tasks = <Future<void>>[];
-
-    for (final cpu in CpuType.values) {
-      if (cpu == CpuType.unknown) {
-        continue;
-      }
-
-      for (final platform in PlatformType.values) {
-        tasks.add(
-          getPlatformInfos(
-            cpuType: cpu,
-            platformType: platform,
-          ).then((_) {}).catchError((_) {}),
-        );
-      }
-    }
-
-    await Future.wait(tasks);
-
-    await getPlatformInfos(
-      cpuType: currentCpuType,
-      platformType: currentPlatformType,
-    );
-  }
-
   Future<List<PlatformEntity>> getPlatformInfos({
     CpuType? cpuType,
     PlatformType? platformType,
@@ -112,14 +83,12 @@ class ConfigService {
     if (!forceReload) {
       final cached = _platformInfoCache[key];
       if (cached != null) {
-        platformEntites = cached;
-        return platformEntites;
+        return cached;
       }
 
       final loadingTask = _platformInfoLoadingTasks[key];
       if (loadingTask != null) {
-        platformEntites = await loadingTask;
-        return platformEntites;
+        return loadingTask;
       }
     }
 
@@ -129,8 +98,7 @@ class ConfigService {
     try {
       final result = await task;
       _platformInfoCache[key] = result;
-      platformEntites = result;
-      return platformEntites;
+      return result;
     } finally {
       _platformInfoLoadingTasks.remove(key);
     }
@@ -158,8 +126,6 @@ class ConfigService {
 
   // 工厂方法获取单例实例
   factory ConfigService() => _instance;
-
-  List<PlatformEntity> platformEntites = [];
 
   final Map<String, List<PlatformEntity>> _platformInfoCache = {};
 

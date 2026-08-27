@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:rapidefi/utils/config/build/efi_build_options.dart';
 import 'package:rapidefi/utils/config/build/efi_build_pipeline.dart';
@@ -22,6 +24,7 @@ class ManualConfigController extends ChangeNotifier {
   ConfigModelMode _mode = ConfigModelMode.manual;
 
   bool _isLoading = true;
+  bool _isDisposed = false;
 
   int _platformBaseRevision = 0;
   int _smbiosRevision = 0;
@@ -30,6 +33,7 @@ class ManualConfigController extends ChangeNotifier {
   int _sipRevision = 0;
   int _uefiSupportRevision = 0;
   int _normalRevision = 0;
+  int _platformSelectionRevision = 0;
 
   PlatformModel? _cachedPlatformModel;
   CpuType? _cachedPlatformCpuType;
@@ -87,12 +91,12 @@ class ManualConfigController extends ChangeNotifier {
         _editor.setConfigModel(_defaultConfigModel());
       }
       _configService.normalizeRuntimeConfigModel();
-      // 初始化平台数据。
-      await _configService.preloadAllPlatformInfos();
-      await _configService.ensureBluetoothNvramCatalog();
-      await _configService.ensureEfiDriverCatalog();
-
-      await AppleALCResolver.initialize();
+      await Future.wait([
+        _configService.getPlatformInfos(),
+        _configService.ensureBluetoothNvramCatalog(),
+        _configService.ensureEfiDriverCatalog(),
+        AppleALCResolver.initialize(),
+      ]);
       _bumpAllVisible(notify: false);
     } finally {
       _setLoading(false);
@@ -118,8 +122,7 @@ class ManualConfigController extends ChangeNotifier {
       cpuType,
       platformType,
     );
-
-    _replacePlatformConfig(
+    _selectPlatform(
       cpuType: cpuType,
       platformType: platformType,
       platformIndex: defaultIndex,
@@ -139,12 +142,53 @@ class ManualConfigController extends ChangeNotifier {
       cpuType,
       platformType,
     );
-
-    _replacePlatformConfig(
+    _selectPlatform(
       cpuType: cpuType,
       platformType: platformType,
       platformIndex: defaultIndex,
     );
+  }
+
+  void _selectPlatform({
+    required CpuType cpuType,
+    required PlatformType platformType,
+    required int platformIndex,
+  }) {
+    final revision = ++_platformSelectionRevision;
+    final isCached = _configService
+        .getCachedPlatformInfos(
+          cpuType: cpuType,
+          platformType: platformType,
+        )
+        .isNotEmpty;
+
+    // 未缓存时等详情到达后一次刷新，避免卡片短暂消失造成布局抖动。
+    _replacePlatformConfig(
+      cpuType: cpuType,
+      platformType: platformType,
+      platformIndex: platformIndex,
+      notify: isCached,
+    );
+    if (!isCached) {
+      unawaited(_loadPlatformInfos(cpuType, platformType, revision));
+    }
+  }
+
+  Future<void> _loadPlatformInfos(
+    CpuType cpuType,
+    PlatformType platformType,
+    int revision,
+  ) async {
+    await _configService.getPlatformInfos(
+      cpuType: cpuType,
+      platformType: platformType,
+    );
+
+    if (_isDisposed || revision != _platformSelectionRevision) {
+      return;
+    }
+
+    notifyListeners();
   }
 
   void selectPlatformInfo(int index) {
@@ -170,6 +214,7 @@ class ManualConfigController extends ChangeNotifier {
     required CpuType cpuType,
     required PlatformType platformType,
     required int platformIndex,
+    bool notify = true,
   }) {
     final previousGeneric = _configService.configModel.platformInfo.generic;
     _editor.setConfigModel(
@@ -186,7 +231,7 @@ class ManualConfigController extends ChangeNotifier {
 
     // 只刷新明确联动的板块：
 
-    _bumpPlatformLinkedSections();
+    _bumpPlatformLinkedSections(notify: notify);
   }
 
   void _applyPlatformContextDefaults(PlatformInfoGeneric? previousGeneric) {
@@ -321,13 +366,15 @@ class ManualConfigController extends ChangeNotifier {
     return model;
   }
 
-  void _bumpPlatformLinkedSections() {
+  void _bumpPlatformLinkedSections({bool notify = true}) {
     _platformBaseRevision++;
     _smbiosRevision++;
     _igpuRevision++;
     _sipRevision++;
     _uefiSupportRevision++;
-    notifyListeners();
+    if (notify) {
+      notifyListeners();
+    }
   }
 
   void _bumpNormal() {
@@ -362,5 +409,11 @@ class ManualConfigController extends ChangeNotifier {
     _cachedPlatformModel = null;
     _cachedPlatformCpuType = null;
     _cachedPlatformType = null;
+  }
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    super.dispose();
   }
 }
