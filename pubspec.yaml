@@ -52,7 +52,7 @@ dependencies:
   equatable: ^2.0.5
   sp_util: ^2.0.3
   flutter_markdown: ^0.7.7
-  fluent_ui: ^4.15.1
+  fluent_ui: 4.15.1
   flutter_acrylic: ^1.1.3
   system_theme: ^3.1.2
   go_router: ^14.3.0
